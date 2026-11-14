@@ -12,9 +12,16 @@ namespace aida.Services.Usage;
 /// admin rows whose <see cref="UsageEvent.Step"/> says what preceded the call
 /// ("plan", "after read_document", …). Ask mode never wraps this — Chat.razor
 /// logs exactly one row per send there.
+///
+/// Each model call also emits an <b>OpenTelemetry span</b> on the
+/// <c>Aida.Llm</c> ActivitySource (subscribed in Program.cs), tagged with
+/// GenAI semantic conventions — one trace therefore shows the request AND
+/// every plan / tool-round / synthesis call nested inside it.
 /// </summary>
 internal sealed class UsageReportingChatClient : DelegatingChatClient
 {
+    private static readonly ActivitySource Llm = new("Aida.Llm", "1.0.0");
+
     private readonly IUsageTracker _tracker;
     private readonly PricingTable _pricing;
     private readonly string _userId;
@@ -46,9 +53,30 @@ internal sealed class UsageReportingChatClient : DelegatingChatClient
         CancellationToken cancellationToken = default)
     {
         var request = messages as IReadOnlyList<ChatMessage> ?? messages.ToList();
+        var step = _stepLabel ?? StepFor(request);
         var clock = Stopwatch.StartNew();
 
-        var response = await base.GetResponseAsync(request, options, cancellationToken);
+        using var activity = Llm.StartActivity($"llm {_model}");
+        activity?.SetTag("gen_ai.operation.name", "chat");
+        activity?.SetTag("gen_ai.request.model", _model);
+        activity?.SetTag("aida.mode", _mode);
+        activity?.SetTag("aida.step", step);
+
+        ChatResponse response;
+        try
+        {
+            response = await base.GetResponseAsync(request, options, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, "cancelled");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            throw;
+        }
         clock.Stop();
 
         var functionCalls = response.Messages
@@ -56,8 +84,12 @@ internal sealed class UsageReportingChatClient : DelegatingChatClient
             .OfType<FunctionCallContent>()
             .Count();
 
+        activity?.SetTag("gen_ai.usage.input_tokens", response.Usage?.InputTokenCount);
+        activity?.SetTag("gen_ai.usage.output_tokens", response.Usage?.OutputTokenCount);
+        activity?.SetTag("aida.tool_calls", functionCalls);
+
         Record(response.Usage, functionCalls, clock.ElapsedMilliseconds,
-            _stepLabel ?? StepFor(request), error: null);
+            step, error: null);
 
         return response;
     }
@@ -80,6 +112,12 @@ internal sealed class UsageReportingChatClient : DelegatingChatClient
         var functionCalls = 0;
         string? error = null;
 
+        using var activity = Llm.StartActivity($"llm {_model}");
+        activity?.SetTag("gen_ai.operation.name", "chat");
+        activity?.SetTag("gen_ai.request.model", _model);
+        activity?.SetTag("aida.mode", _mode);
+        activity?.SetTag("aida.step", step);
+
         var enumerator = base
             .GetStreamingResponseAsync(request, options, cancellationToken)
             .GetAsyncEnumerator(cancellationToken);
@@ -97,11 +135,13 @@ internal sealed class UsageReportingChatClient : DelegatingChatClient
                 catch (OperationCanceledException)
                 {
                     error = "cancelled";
+                    activity?.SetStatus(ActivityStatusCode.Error, "cancelled");
                     throw;
                 }
                 catch (Exception ex)
                 {
                     error = ex.Message;
+                    activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
                     throw;
                 }
 
@@ -120,6 +160,9 @@ internal sealed class UsageReportingChatClient : DelegatingChatClient
         {
             clock.Stop();
             await enumerator.DisposeAsync();
+            activity?.SetTag("gen_ai.usage.input_tokens", usage?.InputTokenCount);
+            activity?.SetTag("gen_ai.usage.output_tokens", usage?.OutputTokenCount);
+            activity?.SetTag("aida.tool_calls", functionCalls);
             Record(usage, functionCalls, clock.ElapsedMilliseconds, step, error);
         }
     }

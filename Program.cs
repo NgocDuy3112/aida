@@ -17,6 +17,7 @@ using OpenAI;
 using StackExchange.Redis;
 using System.ClientModel;
 using Microsoft.AspNetCore.DataProtection;
+using OpenTelemetry.Trace;
 
 Env.Load();
 
@@ -94,6 +95,24 @@ builder.Services.AddScoped<DocumentIngestor>();
 builder.Services.AddScoped<DocumentService>();
 builder.Services.AddChatClient(chatClient).UseLogging();
 builder.Services.AddEmbeddingGenerator(embeddings);
+
+// --- tracing: OpenTelemetry → OTLP -----------------------------------------
+// Off by default (local `dotnet run` has no collector); docker-compose sets
+// OpenTelemetry__Endpoint=http://jaeger:4318/v1/traces. One trace per request:
+// Blazor circuit → EF Core queries → HttpClient calls (OpenRouter, Tavily,
+// SystemOne). "Aida.Llm" is our own ActivitySource for per-model-call spans
+// (LLM/agent tracing) — harmless until those activities exist.
+var otelEndpoint = builder.Configuration["OpenTelemetry:Endpoint"];
+if (!string.IsNullOrWhiteSpace(otelEndpoint))
+{
+    builder.Services.AddOpenTelemetry()
+        .WithTracing(t => t
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
+            .AddEntityFrameworkCoreInstrumentation()
+            .AddSource("Aida.Llm")
+            .AddOtlpExporter(e => e.Endpoint = new Uri(otelEndpoint)));
+}
 
 // Behind a proxy/container the real scheme arrives as X-Forwarded-Proto —
 // without this, Google OAuth callbacks and Secure cookies misbehave in prod.
