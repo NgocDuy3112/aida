@@ -52,10 +52,7 @@ textarea {
     .attach svg { width: 1.125rem; height: 1.125rem; }
 
 .model-picker {
-    /* Flex child in .tools: pushes itself + send button right. */
-    margin-left: auto;
     position: relative;
-    /* Stacks the menu (and its backdrop) above the chat surface. */
     z-index: 60;
 }
 
@@ -97,7 +94,6 @@ textarea {
 
 .model-trigger.is-open .chevron { transform: rotate(180deg); }
 
-/* Transparent full-screen layer: any outside click closes the menu. */
 .model-menu-backdrop {
     position: fixed;
     inset: 0;
@@ -156,10 +152,10 @@ textarea {
     text-overflow: ellipsis;
 }
 
-    /* Hide the native control; the label is the button. */
     .attach ::deep input[type=file] { display: none; }
 
 .send-button {
+    margin-left: auto;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -177,7 +173,6 @@ textarea {
 
     .send-button svg { width: 1.125rem; height: 1.125rem; }
 
-/* --- Small screens ----------------------------------------------------- */
 
 @media (max-width: 600px) {
     .model-trigger {
@@ -190,17 +185,15 @@ textarea {
         max-height: 50vh;
     }
 
-    /* Comfortable tap targets. */
     .attach,
     .send-button {
         width: 40px;
         height: 40px;
     }
 
-    textarea { font-size: 1rem; } /* stops iOS zoom-on-focus */
+    textarea { font-size: 1rem; } 
 }
 
-/* --- Tool buttons (camera / images / mic) ------------------------------ */
 
 .tool-btn {
     display: inline-flex;
@@ -217,7 +210,6 @@ textarea {
 .tool-btn:hover { color: var(--text); background: var(--surface); }
 .tool-btn svg { width: 1.125rem; height: 1.125rem; }
 
-/* Hide the native file inputs; the label is the button. */
 .tool-btn ::deep input[type=file] { display: none; }
 
 .tool-btn.mic[disabled] { opacity: .4; cursor: not-allowed; }
@@ -237,7 +229,6 @@ textarea {
     .tool-btn.mic.is-listening { animation: none; }
 }
 
-/* --- Pending image chips ---------------------------------------------- */
 
 .image-chips {
     display: flex;
@@ -285,7 +276,6 @@ textarea {
     margin-left: auto;
 }
 
-/* --- Mode switch (Auto / Ask / Agent) --------------------------------- */
 
 .mode-switch {
     display: inline-flex;
@@ -320,10 +310,72 @@ textarea {
     outline-offset: -2px;
 }
 
-/* --- Small screens ------------------------------------------------------ */
+
+.crew-picker {
+    position: relative;
+}
+
+    .crew-picker .tool-btn.is-open {
+        border-color: var(--accent);
+        color: var(--accent);
+    }
+
+.crew-menu {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    right: 0;
+    z-index: 50;
+    min-width: 350px;
+    max-width: calc(100vw - 24px);
+    padding: 10px;
+    display: grid;
+    gap: var(--space-2);
+    background: var(--surface-raised);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    box-shadow: 0 12px 32px light-dark(rgb(0 0 0 / 0.12), rgb(0 0 0 / 0.55));
+}
+
+.crew-row {
+    display: grid;
+    grid-template-columns: 78px 1fr 96px;
+    gap: 6px;
+    align-items: center;
+}
+
+.crew-role {
+    font-size: .72rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.crew-model, .crew-think {
+    font: inherit;
+    font-size: .74rem;
+    padding: 4px 6px;
+    min-width: 0;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+}
+
+    .crew-model:focus, .crew-think:focus {
+        outline: none;
+        border-color: var(--accent);
+    }
+
+.crew-note {
+    margin: 2px 0 0;
+    font-size: .68rem;
+    line-height: 1.45;
+    color: var(--text-muted);
+}
 
 @media (max-width: 600px) {
     .tools { flex-wrap: wrap; row-gap: var(--space-2); }
     .mode-option { padding: 7px 10px; font-size: .75rem; }
     .image-chip { width: 40px; height: 40px; }
+    .crew-menu { left: 0; right: auto; }
+    .crew-row { grid-template-columns: 64px 1fr 88px; }
 }

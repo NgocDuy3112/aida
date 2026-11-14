@@ -5,14 +5,13 @@ using aida.Services.Usage;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Logging.Abstractions;
 using OpenAI;
 
 namespace aida.Tests.Services;
 
 public class ParallelResearchToolTests
 {
-    // --- fakes ---------------------------------------------------------------
-
     private sealed class RecordingTracker : IUsageTracker
     {
         public Task RecordAsync(UsageEvent evt, CancellationToken ct = default)
@@ -29,7 +28,6 @@ public class ParallelResearchToolTests
         public IFileProvider WebRootFileProvider { get; set; } = null!;
     }
 
-    /// <summary>Runs the real batching/retry logic with a faked worker — no network.</summary>
     private sealed class TestTool : ParallelResearchTool
     {
         public TestTool()
@@ -37,8 +35,9 @@ public class ParallelResearchToolTests
                 new OpenAIClient(new ApiKeyCredential("test-key"),
                     new OpenAIClientOptions { Endpoint = new Uri("https://example.invalid/") }),
                 new RecordingTracker(),
-                new PricingTable(new ConfigurationBuilder().Build()),
-                new FakeWebHostEnvironment())
+                new PricingTable(),
+                new FakeWebHostEnvironment(),
+                NullLogger<ParallelResearchTool>.Instance)
         {
         }
 
@@ -46,7 +45,8 @@ public class ParallelResearchToolTests
         public bool CancelNextCall { get; set; }
 
         internal override Task<string> RunWorkerAsync(
-            string task, string userId, string model, CancellationToken ct)
+            string task, string userId, string model, CancellationToken ct,
+            string? thinking = null)
         {
             Seen.Add(task);
             ct.ThrowIfCancellationRequested();
@@ -58,8 +58,6 @@ public class ParallelResearchToolTests
             return Task.FromResult($"OK:{task}");
         }
     }
-
-    // --- tests ----------------------------------------------------------------
 
     [Fact]
     public async Task Empty_or_blank_tasks_return_an_error_without_running_workers()
@@ -115,12 +113,11 @@ public class ParallelResearchToolTests
             ["healthy task", "bad task"],
             "user-1", "model-x", CancellationToken.None);
 
-        // failing task attempted twice (retry), healthy once
         Assert.Equal(2, tool.Seen.Count(t => t == "bad task"));
         Assert.Single(tool.Seen, t => t == "healthy task");
 
         Assert.Contains("failed after 2 attempts: worker exploded", result);
-        Assert.Contains("OK:healthy task", result);   // sibling result survives
+        Assert.Contains("OK:healthy task", result);   
     }
 
     [Fact]

@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using aida.Data;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 
 namespace aida.Extensions;
@@ -37,13 +38,12 @@ public static class AuthEndpointExtensions
                 info.LoginProvider, info.ProviderKey, isPersistent: true, bypassTwoFactor: true);
             if (signIn.Succeeded)
             {
-                // Returning user: refresh profile data and re-assert admin
-                // (idempotent — runs on every login).
                 var returning = await userManager.FindByLoginAsync(info.LoginProvider, info.ProviderKey);
                 if (returning is not null)
                 {
                     await SyncExternalProfileAsync(userManager, info, returning);
                     await EnsureAdminAsync(userManager, roleManager, config, returning);
+                    await PersistGoogleRefreshTokenAsync(signInManager, userManager, returning);
                 }
                 return Results.Redirect(target);
             }
@@ -77,6 +77,7 @@ public static class AuthEndpointExtensions
 
             await SyncExternalProfileAsync(userManager, info, user);
             await EnsureAdminAsync(userManager, roleManager, config, user);
+            await PersistGoogleRefreshTokenAsync(signInManager, userManager, user);
 
             await signInManager.SignInAsync(user, isPersistent: true);
             return Results.Redirect(target);
@@ -105,8 +106,6 @@ public static class AuthEndpointExtensions
                     await userManager.CreateAsync(user);
                 }
 
-                // Dev convenience: the local dev user is always an admin so
-                // /admin is reachable without configuring Admin:Emails.
                 if (!await roleManager.RoleExistsAsync("Admin"))
                     await roleManager.CreateAsync(new IdentityRole("Admin"));
                 if (!await userManager.IsInRoleAsync(user, "Admin"))
@@ -120,8 +119,6 @@ public static class AuthEndpointExtensions
         return app;
     }
 
-    /// <summary>Re-syncs display name / avatar from the provider on every
-    /// login — profile edits made upstream show up automatically.</summary>
     internal static async Task SyncExternalProfileAsync(
         UserManager<AppUser> userManager, ExternalLoginInfo info, AppUser user)
     {
@@ -144,7 +141,19 @@ public static class AuthEndpointExtensions
             await userManager.UpdateAsync(user);
     }
 
-    /// <summary>True when the email is listed in Admin:Emails (case-insensitive).</summary>
+    internal static async Task PersistGoogleRefreshTokenAsync(
+        SignInManager<AppUser> signInManager, UserManager<AppUser> userManager, AppUser user)
+    {
+        var external = await signInManager.Context.AuthenticateAsync(IdentityConstants.ExternalScheme);
+        var refresh = external.Properties?.GetTokenValue("refresh_token");
+        if (string.IsNullOrWhiteSpace(refresh) || user.GoogleRefreshToken == refresh)
+            return;
+
+        user.GoogleRefreshToken = refresh;
+        user.GoogleRefreshTokenObtainedUtc = DateTime.UtcNow;
+        await userManager.UpdateAsync(user);
+    }
+
     internal static bool IsAdminEmail(IConfiguration config, string? email)
     {
         if (string.IsNullOrWhiteSpace(email)) return false;
@@ -156,8 +165,6 @@ public static class AuthEndpointExtensions
             .Contains(email, StringComparer.OrdinalIgnoreCase);
     }
 
-    /// <summary>Members of Admin:Emails land in the Admin role (created on
-    /// first use) — idempotent and safe to call on every login.</summary>
     internal static async Task EnsureAdminAsync(
         UserManager<AppUser> userManager, RoleManager<IdentityRole> roleManager,
         IConfiguration config, AppUser user)
@@ -170,7 +177,6 @@ public static class AuthEndpointExtensions
             await userManager.AddToRoleAsync(user, "Admin");
     }
 
-    // Rejects absolute URLs, protocol-relative "//evil.com", and "/\evil.com"
     internal static string SafeReturnUrl(string? returnUrl)
         => !string.IsNullOrEmpty(returnUrl)
            && returnUrl[0] == '/'

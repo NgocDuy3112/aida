@@ -1,33 +1,15 @@
-using System.Globalization;
-
 namespace aida.Services.Usage;
 
-/// <summary>
-/// USD per 1M token prices from <c>OpenRouter:Pricing</c> (seeded from the live
-/// OpenRouter catalog). Models without an entry return null cost — the admin
-/// page reports those as unpriced instead of inventing numbers.
-/// </summary>
 public sealed class PricingTable
 {
-    private readonly Dictionary<string, (decimal In, decimal Out)> _prices;
+    private volatile IReadOnlyDictionary<string, (decimal In, decimal Out)> _prices =
+        new Dictionary<string, (decimal In, decimal Out)>(StringComparer.Ordinal);
 
-    public PricingTable(IConfiguration configuration)
-    {
-        _prices = new Dictionary<string, (decimal, decimal)>(StringComparer.Ordinal);
-
-        foreach (var model in configuration.GetSection("OpenRouter:Pricing").GetChildren())
-        {
-            var name = model.Key;
-            if (string.IsNullOrWhiteSpace(name)) continue;
-
-            if (TryDecimal(model["In"], out var priceIn) && TryDecimal(model["Out"], out var priceOut))
-                _prices[name] = (priceIn, priceOut);
-        }
-    }
+    internal void Replace(IReadOnlyDictionary<string, (decimal In, decimal Out)> prices)
+        => _prices = new Dictionary<string, (decimal In, decimal Out)>(prices, StringComparer.Ordinal);
 
     internal int Count => _prices.Count;
 
-    /// <summary>Cost of one call, or null when pricing/tokens are unavailable.</summary>
     public decimal? CostUsd(string model, long? promptTokens, long? completionTokens)
     {
         if (promptTokens is null && completionTokens is null) return null;
@@ -39,7 +21,4 @@ public sealed class PricingTable
     }
 
     public bool IsPriced(string model) => _prices.ContainsKey(model);
-
-    private static bool TryDecimal(string? raw, out decimal value) =>
-        decimal.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
 }

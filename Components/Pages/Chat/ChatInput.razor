@@ -1,5 +1,6 @@
 @inject IJSRuntime JS
 @inject IConfiguration Config
+@inject ILogger<ChatInput> Logger
 @implements IAsyncDisposable
 
 <EditForm Model="@this" OnValidSubmit="@SendMessageAsync">
@@ -122,6 +123,83 @@
                 }
             </div>
 
+            @if (Mode == ChatMode.Agent)
+            {
+                <div class="crew-picker">
+                    <button type="button" class="tool-btn @(crewOpen ? "is-open" : null)"
+                            title="Crew: model & thinking per role (session)"
+                            aria-label="Crew settings" aria-haspopup="dialog"
+                            aria-expanded="@(crewOpen ? "true" : "false")"
+                            @onclick="() => crewOpen = !crewOpen">&#9881;</button>
+
+                    @if (crewOpen)
+                    {
+                        <div class="model-menu-backdrop" @onclick="() => crewOpen = false"></div>
+                        <div class="crew-menu" role="dialog" aria-label="Crew settings">
+                            <div class="crew-row">
+                                <span class="crew-role">Director</span>
+                                <select class="crew-model" aria-label="Director model"
+                                        value="@Crew.DirectorModel"
+                                        @onchange="e => SetCrew(c => c with { DirectorModel = e.Value as string ?? c.DirectorModel })">
+                                    @foreach (var m in CrewModels(Crew.DirectorModel))
+                                    {
+                                        <option value="@m">@m</option>
+                                    }
+                                </select>
+                                <select class="crew-think" aria-label="Director thinking"
+                                        value="@Crew.DirectorThinking"
+                                        @onchange="e => SetCrew(c => c with { DirectorThinking = e.Value as string ?? c.DirectorThinking })">
+                                    @foreach (var t in CrewOptions.ThinkingLevels)
+                                    {
+                                        <option value="@t">@t</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="crew-row">
+                                <span class="crew-role">Researchers</span>
+                                <select class="crew-model" aria-label="Researcher model"
+                                        value="@Crew.ResearcherModel"
+                                        @onchange="e => SetCrew(c => c with { ResearcherModel = e.Value as string ?? c.ResearcherModel })">
+                                    @foreach (var m in CrewModels(Crew.ResearcherModel))
+                                    {
+                                        <option value="@m">@m</option>
+                                    }
+                                </select>
+                                <select class="crew-think" aria-label="Researcher thinking"
+                                        value="@Crew.ResearcherThinking"
+                                        @onchange="e => SetCrew(c => c with { ResearcherThinking = e.Value as string ?? c.ResearcherThinking })">
+                                    @foreach (var t in CrewOptions.ThinkingLevels)
+                                    {
+                                        <option value="@t">@t</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="crew-row">
+                                <span class="crew-role">Writer</span>
+                                <select class="crew-model" aria-label="Writer model"
+                                        value="@Crew.WriterModel"
+                                        @onchange="e => SetCrew(c => c with { WriterModel = e.Value as string ?? c.WriterModel })">
+                                    @foreach (var m in CrewModels(Crew.WriterModel))
+                                    {
+                                        <option value="@m">@m</option>
+                                    }
+                                </select>
+                                <select class="crew-think" aria-label="Writer thinking"
+                                        value="@Crew.WriterThinking"
+                                        @onchange="e => SetCrew(c => c with { WriterThinking = e.Value as string ?? c.WriterThinking })">
+                                    @foreach (var t in CrewOptions.ThinkingLevels)
+                                    {
+                                        <option value="@t">@t</option>
+                                    }
+                                </select>
+                            </div>
+                            <p class="crew-note">Session only — resets on New chat. A pinned model
+                                overrides the Director. Thinking "off" = provider default.</p>
+                        </div>
+                    }
+                </div>
+            }
+
             <button type="submit" title="Send" class="send-button" aria-label="Send message">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round"
@@ -156,23 +234,38 @@
     [Parameter] public EventCallback<IBrowserFile> OnFileSelected { get; set; }
     [Parameter] public string? AttachedFile { get; set; }
 
-    /// <summary>Null means "Auto" — the router picks the model per message.</summary>
     [Parameter] public string? PinnedModel { get; set; }
 
     [Parameter] public EventCallback<string?> PinnedModelChanged { get; set; }
 
-    /// <summary>Active chat behavior (Auto / Ask / Agent), owned by Chat.razor.</summary>
     [Parameter] public ChatMode Mode { get; set; } = ChatMode.Ask;
 
     [Parameter] public EventCallback<ChatMode> ModeChanged { get; set; }
 
-    /// <summary>Validation/feedback messages shown by Chat's status line.</summary>
+    [Parameter] public CrewState Crew { get; set; } = new("", "", "", "off", "off", "off");
+
+    [Parameter] public EventCallback<CrewState> CrewChanged { get; set; }
+
+    private bool crewOpen;
+
+    private void SetCrew(Func<CrewState, CrewState> update)
+    {
+        Crew = update(Crew);
+        _ = CrewChanged.InvokeAsync(Crew);
+    }
+
+    private List<string> CrewModels(string current)
+    {
+        var list = RenderedModels;
+        if (!string.IsNullOrWhiteSpace(current) && !list.Contains(current))
+            list.Insert(0, current);
+        return list;
+    }
+
     [Parameter] public EventCallback<string?> StatusChanged { get; set; }
 
     private void SetStatus(string? value) => _ = StatusChanged.InvokeAsync(value);
 
-    /// <summary>Configured models, plus the pinned one if config removed it —
-    /// a pin must always have a matching row while it is active.</summary>
     private List<string> RenderedModels
     {
         get
@@ -186,8 +279,6 @@
 
     protected override void OnInitialized()
     {
-        // The explicit subset from OpenRouter:ChatModels — ordered as configured,
-        // deduped, embedding model never included (it's not a chat choice).
         var or = Config.GetSection("OpenRouter");
         foreach (var model in or.GetSection("ChatModels").GetChildren()
                      .Select(c => c.Value)
@@ -197,8 +288,6 @@
                 availableModels.Add(model!);
         }
 
-        // Fallback: no ChatModels configured → derive from the tier models so
-        // the picker is never empty.
         if (availableModels.Count == 0)
         {
             foreach (var key in new[] { "StrongModel", "ModerateModel", "LightModel" })
@@ -235,7 +324,7 @@
     private async Task OnMenuKeyDown(KeyboardEventArgs e)
     {
         var models = RenderedModels;
-        var last = models.Count; // index 0 is Auto, so last valid = models.Count
+        var last = models.Count; 
 
         switch (e.Key)
         {
@@ -275,7 +364,6 @@
         var contents = new List<AIContent> { new TextContent(text ?? string.Empty) };
         foreach (var image in pendingImages)
         {
-            // Our data URIs always look like data:<media-type>;base64,…
             var mediaType = image.DataUri[5..image.DataUri.IndexOf(';')];
             contents.Add(new DataContent(image.DataUri, mediaType));
         }
@@ -293,8 +381,6 @@
         if (value != Mode)
             await ModeChanged.InvokeAsync(value);
     }
-
-    // --- images (camera + gallery) ------------------------------------
 
     private async Task OnImagesSelected(InputFileChangeEventArgs e)
     {
@@ -349,7 +435,6 @@
         if (!string.IsNullOrWhiteSpace(file.ContentType)
             && file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
         {
-            // Some browsers report image/jpg — normalize to the registered type.
             return file.ContentType.Equals("image/jpg", StringComparison.OrdinalIgnoreCase)
                 ? "image/jpeg"
                 : file.ContentType.ToLowerInvariant();
@@ -370,8 +455,6 @@
         if (index >= 0 && index < pendingImages.Count)
             pendingImages.RemoveAt(index);
     }
-
-    // --- voice input (Web Speech API, vi-VN) ------------------------------
 
     private async Task ToggleVoice()
     {
@@ -440,6 +523,7 @@
             }
             catch (JSDisconnectedException)
             {
+                Logger.LogDebug("Circuit disconnected while initializing chat input — init skipped.");
             }
         }
 
@@ -460,8 +544,14 @@
                 if (listening) await module.InvokeVoidAsync("stopVoice");
                 await module.DisposeAsync();
             }
-            catch (JSDisconnectedException) { }
-            catch (ObjectDisposedException) { }
+            catch (JSDisconnectedException)
+            {
+                Logger.LogDebug("Circuit already disconnected while stopping voice input during dispose.");
+            }
+            catch (ObjectDisposedException)
+            {
+                Logger.LogDebug("JS module already disposed — skipped cleanup.");
+            }
         }
 
         selfReference?.Dispose();

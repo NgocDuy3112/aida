@@ -47,9 +47,10 @@ docker compose up -d        # app + postgres + redis (all healthchecked)
 - **Database migrations**: compose applies them on boot (`Database__AutoMigrate=true`).
   For a local DB run `dotnet ef database update` once (pending: `AddUsageEvents`).
 - **Rate limit**: `RateLimit:ChatPerMinute` (default 20, `0` disables).
-- **Model pricing** (`OpenRouter:Pricing` in `appsettings.json`): USD per 1M
-  tokens, seeded from the live OpenRouter catalog. Unlisted models show as
-  "unpriced" in `/admin` — update prices when you add models.
+- **Model pricing**: fetched live from the OpenRouter catalog
+  (`GET /api/v1/models`) at boot and every 6 h — no prices in config. Models
+  absent from the catalog show as "unpriced" in `/admin`; a failed refresh
+  logs a warning and retries on the next cycle.
 - **Forwarded headers** are trusted from any address (single-proxy setup) so the
   Google OAuth callback sees `https`. If you expose the app *directly* to the
   internet without a proxy, revisit `ForwardedHeadersOptions` in `Program.cs`.

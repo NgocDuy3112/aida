@@ -6,41 +6,36 @@ using OpenAI;
 
 namespace aida.Services.Agents;
 
-/// <summary>
-/// parallel_research: the harness's fan-out tool. Runs up to
-/// <see cref="MaxWorkers"/> INDEPENDENT sub-tasks concurrently, each in an
-/// isolated context (system + task only — no conversation history), each with
-/// its own read_document tool and its own usage reporting row
-/// (Step = "worker: …"). One retry per task; a failing task degrades to a
-/// marked failure string instead of killing the batch. Cancellation aborts
-/// the whole fan-out.
-/// </summary>
 public class ParallelResearchTool(
     OpenAIClient openAi,
     IUsageTracker tracker,
     PricingTable pricing,
-    IWebHostEnvironment env)
+    IWebHostEnvironment env,
+    ILogger<ParallelResearchTool> logger)
 {
     internal const int MaxWorkers = 3;
 
-    private const string WorkerInstructions =
-        "You are a focused research sub-agent. Complete ONLY the task you are given. "
-        + "Use the read_document tool when the task refers to a stored file. Report findings "
-        + "concisely as bullet points, and state plainly when information is missing. "
-        + "Do not ask questions and do not address the original user directly.";
+    private const string ResearcherInstructions =
+        "You are a research sub-agent in a crew of agents. Find and report the facts relevant ONLY to " +
+        "the task you are given. Use the read_document tool when the task refers to a stored file, and " +
+        "prefer concrete details (numbers, dates, names) over generalities. Report findings concisely as " +
+        "bullet points; mark anything you could not verify as unverified, and state plainly when " +
+        "information is missing. Do not ask questions, do not address the original user directly, and do " +
+        "not draft final documents — findings only.";
 
-    public AIFunction Create(string userId, string model) =>
+    public AIFunction Create(string userId, string model, string thinking) =>
         AIFunctionFactory.Create(
-            (string[] tasks, CancellationToken ct) => RunAsync(tasks, userId, model, ct),
+            (string[] tasks, CancellationToken ct) => RunAsync(tasks, userId, model, ct, thinking),
             "parallel_research",
-            $"Run up to {MaxWorkers} INDEPENDENT research sub-tasks concurrently in isolated "
-            + "contexts (each worker can read documents; no conversation history is shared). "
-            + "Use only when the tasks do not depend on each other — sequential or dependent "
-            + "steps should be done directly. Returns the merged findings of every task.",
+            $"Run up to {MaxWorkers} INDEPENDENT research sub-tasks concurrently with lightweight "
+            + "researcher agents in isolated contexts (each worker can read documents; no conversation "
+            + "history is shared). Use only when the tasks do not depend on each other — sequential or "
+            + "dependent steps should be done directly. Returns the merged findings of every task.",
             null);
 
     internal async Task<string> RunAsync(
-        string[]? tasks, string userId, string model, CancellationToken ct)
+        string[]? tasks, string userId, string model, CancellationToken ct,
+        string? thinking = null)
     {
         var cleaned = (tasks ?? [])
             .Where(t => !string.IsNullOrWhiteSpace(t))
@@ -53,7 +48,7 @@ public class ParallelResearchTool(
         var selected = cleaned.Take(MaxWorkers).ToList();
 
         var results = await Task.WhenAll(
-            selected.Select(t => RunWithRetryAsync(t, userId, model, ct)));
+            selected.Select(t => RunWithRetryAsync(t, userId, model, thinking, ct)));
 
         var builder = new StringBuilder();
         if (truncated)
@@ -71,37 +66,40 @@ public class ParallelResearchTool(
     }
 
     private async Task<string> RunWithRetryAsync(
-        string task, string userId, string model, CancellationToken ct)
+        string task, string userId, string model, string? thinking, CancellationToken ct)
     {
         for (var attempt = 1; attempt <= 2; attempt++)
         {
             try
             {
-                return await RunWorkerAsync(task, userId, model, ct);
+                return await RunWorkerAsync(task, userId, model, ct, thinking);
             }
             catch (OperationCanceledException)
             {
-                throw; // user aborts must abort the fan-out, not be retried
+                throw; 
             }
             catch (Exception ex) when (attempt == 2)
             {
+                logger.LogError(ex,
+                    "parallel_research: task failed after {Attempt} attempts: {Task}",
+                    attempt, task);
                 return $"[sub-task failed after {attempt} attempts: {ex.Message}]";
             }
-            catch
+            catch (Exception ex)
             {
-                // transient failure → single retry
+                logger.LogWarning(ex,
+                    "parallel_research: attempt {Attempt}/2 failed, retrying task: {Task}",
+                    attempt, task);
             }
         }
 
-        return "[sub-task failed]"; // unreachable: attempt 2 always returns or throws
+        return "[sub-task failed]"; 
     }
 
-    /// <summary>One isolated worker call. Virtual so tests can fake execution.</summary>
     internal virtual async Task<string> RunWorkerAsync(
-        string task, string userId, string model, CancellationToken ct)
+        string task, string userId, string model, CancellationToken ct,
+        string? thinking = null)
     {
-        // Isolated context: system instructions + this task ONLY. The reporting
-        // wrapper logs this call as its own UsageEvent (Step = "worker: …").
         var client = new UsageReportingChatClient(
             openAi.GetChatClient(model).AsIChatClient(),
             tracker, pricing, userId, model, "agent",
@@ -109,12 +107,13 @@ public class ParallelResearchTool(
 
         var response = await client.GetResponseAsync(
         [
-            new ChatMessage(ChatRole.System, WorkerInstructions),
+            new ChatMessage(ChatRole.System, ResearcherInstructions),
             new ChatMessage(ChatRole.User, task),
         ],
         new ChatOptions
         {
             Tools = [ChatDocumentTools.CreateReadDocument(userId, env)],
+            Reasoning = CrewOptions.Reasoning(thinking),
         },
         ct);
 

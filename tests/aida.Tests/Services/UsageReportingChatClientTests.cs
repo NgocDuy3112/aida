@@ -9,8 +9,6 @@ namespace aida.Tests.Services;
 
 public class UsageReportingChatClientTests
 {
-    // --- fakes -------------------------------------------------------------
-
     private sealed class RecordingTracker : IUsageTracker
     {
         public List<UsageEvent> Events { get; } = [];
@@ -55,19 +53,13 @@ public class UsageReportingChatClientTests
         public void Dispose() { }
     }
 
-    // --- helpers -----------------------------------------------------------
-
-    private static readonly (string Key, string Value)[] PriceConfig =
-    [
-        ("OpenRouter:Pricing:openai/gpt-4o:In", "2.5"),
-        ("OpenRouter:Pricing:openai/gpt-4o:Out", "10"),
-    ];
-
     private static (UsageReportingChatClient Client, RecordingTracker Tracker) Wrap(FakeChatClient inner)
     {
-        var pricing = new PricingTable(new ConfigurationBuilder()
-            .AddInMemoryCollection(PriceConfig.ToDictionary(p => p.Key, p => (string?)p.Value))
-            .Build());
+        var pricing = new PricingTable();
+        pricing.Replace(new Dictionary<string, (decimal In, decimal Out)>
+        {
+            ["openai/gpt-4o"] = (2.5m, 10m),
+        });
 
         var tracker = new RecordingTracker();
         var client = new UsageReportingChatClient(inner, tracker, pricing,
@@ -92,8 +84,6 @@ public class UsageReportingChatClientTests
         return response;
     }
 
-    // --- tests -------------------------------------------------------------
-
     [Fact]
     public async Task Non_streaming_call_records_usage_cost_and_tool_count()
     {
@@ -112,9 +102,9 @@ public class UsageReportingChatClientTests
         Assert.Equal("agent", evt.Mode);
         Assert.Equal(1000, evt.PromptTokens);
         Assert.Equal(500, evt.CompletionTokens);
-        Assert.Equal(0.0075m, evt.CostUsd);   // 1000×$2.5 + 500×$10 per 1M
+        Assert.Equal(0.0075m, evt.CostUsd);   
         Assert.Equal(1, evt.ToolCalls);
-        Assert.Equal("plan", evt.Step);       // no prior tool calls in the request
+        Assert.Equal("plan", evt.Step);       
         Assert.Null(evt.Error);
     }
 
@@ -143,7 +133,7 @@ public class UsageReportingChatClientTests
         var evt = Assert.Single(tracker.Events);
         Assert.Equal(700, evt.PromptTokens);
         Assert.Equal(300, evt.CompletionTokens);
-        Assert.Equal(0.00475m, evt.CostUsd);    // 700×$2.5 + 300×$10 per 1M
+        Assert.Equal(0.00475m, evt.CostUsd);    
         Assert.Equal("plan", evt.Step);
         Assert.Null(evt.Error);
         Assert.Equal("P", text.ToString());
@@ -158,8 +148,6 @@ public class UsageReportingChatClientTests
         };
         var (client, tracker) = Wrap(inner);
 
-        // Request history contains an earlier tool call + its result — this
-        // model call happens BECAUSE of read_document.
         var history = new List<ChatMessage>
         {
             new(ChatRole.User, "read the cv"),
