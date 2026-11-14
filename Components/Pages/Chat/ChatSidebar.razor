@@ -58,8 +58,6 @@
     [Parameter] public EventCallback<Guid> OnSelect { get; set; }
     [Parameter] public EventCallback OnNewChat { get; set; }
 
-    /// <summary>True while the off-canvas drawer is open (mobile only —
-    /// desktop CSS ignores the class).</summary>
     [Parameter] public bool Open { get; set; }
 
     private string Initial => DisplayName.Length > 0 ? DisplayName[..1].ToUpperInvariant() : "?";

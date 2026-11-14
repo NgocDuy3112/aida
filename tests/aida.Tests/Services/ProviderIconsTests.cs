@@ -4,9 +4,6 @@ namespace aida.Tests.Services;
 
 public class ProviderIconsTests
 {
-    // The providers currently configured in appsettings ChatModels — if this
-    // test fails after a config edit, the new provider just gets a monogram
-    // fallback (which is fine); it fails only if an embedded icon breaks.
     [Theory]
     [InlineData("google")]
     [InlineData("openai")]
@@ -27,9 +24,9 @@ public class ProviderIconsTests
     [InlineData("openai/gpt-6-luna", "openai")]
     [InlineData("google/gemini-3.8-flash", "google")]
     [InlineData("anthropic/claude-sonnet-5.5", "anthropic")]
-    [InlineData("a/b/c", "a")]              // only the first segment
-    [InlineData("no-slash", "")]            // bare id → no provider
-    [InlineData("/leading-slash", "")]      // slash at position 0 is not a provider
+    [InlineData("a/b/c", "a")]              
+    [InlineData("no-slash", "")]            
+    [InlineData("/leading-slash", "")]      
     public void ProviderOf_extracts_prefix(string modelId, string expected)
     {
         Assert.Equal(expected, ProviderIcons.ProviderOf(modelId));
@@ -44,7 +41,7 @@ public class ProviderIconsTests
 
     [Theory]
     [InlineData("")]
-    [InlineData("meta")]          // known-unlisted provider → monogram fallback
+    [InlineData("meta")]          
     [InlineData("mystery-labs")]
     public void Unknown_provider_falls_back_to_null(string provider)
     {

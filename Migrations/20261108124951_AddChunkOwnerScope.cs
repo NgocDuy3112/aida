@@ -4,10 +4,8 @@
 
 namespace aida.Migrations
 {
-    /// <inheritdoc />
     public partial class AddChunkOwnerScope : Migration
     {
-        /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.AddColumn<string>(
@@ -24,7 +22,6 @@ namespace aida.Migrations
                 columns: new[] { "OwnerId", "DocumentId" });
         }
 
-        /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropIndex(

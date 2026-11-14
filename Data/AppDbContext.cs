@@ -44,7 +44,6 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
             e.HasIndex(c => new { c.OwnerId, c.DocumentId });
             e.Property(c => c.Text).IsRequired();
 
-            // Approximate nearest-neighbour index for cosine distance (<=>).
             e.HasIndex(c => c.Embedding)
              .HasMethod("hnsw")
              .HasOperators("vector_cosine_ops");

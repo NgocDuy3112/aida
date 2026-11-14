@@ -11,13 +11,9 @@ public class DocumentGenerationTests
 {
     static DocumentGenerationTests()
     {
-        // QuestPDF refuses to render without a license; production sets this
-        // in Program.cs, tests need their own.
         QuestPDF.Settings.License = LicenseType.Community;
         QuestPDF.Settings.ThrowOnMissingFontFamilies = false;
     }
-
-    // --- MarkdownLite ------------------------------------------------------
 
     [Fact]
     public void Parse_splits_headings_bullets_fences_and_paragraphs()
@@ -71,8 +67,6 @@ public class DocumentGenerationTests
         Assert.Empty(MarkdownLite.Parse("   \n\n  "));
     }
 
-    // --- .docx -------------------------------------------------------------
-
     [Fact]
     public void Docx_contains_title_headings_bullets_code_and_vietnamese_text()
     {
@@ -93,13 +87,13 @@ public class DocumentGenerationTests
         var body = doc.MainDocumentPart!.Document!;
         var text = string.Join("|", body.Descendants<Text>().Select(t => t.Text));
 
-        Assert.Contains("Báo cáo", text);          // title heading (unicode-safe)
+        Assert.Contains("Báo cáo", text);          
         Assert.Contains("Giới thiệu", text);
         Assert.Contains("mục một", text);
-        Assert.Contains("•", text);                 // bullet glyph
+        Assert.Contains("•", text);                 
         Assert.Contains("SELECT 1;", text);
         Assert.Contains("quan trọng", text);
-        Assert.NotEmpty(body.Descendants<Bold>());   // inline bold survives
+        Assert.NotEmpty(body.Descendants<Bold>());   
     }
 
     [Fact]
@@ -108,8 +102,6 @@ public class DocumentGenerationTests
         var bytes = DocxWriter.Write("T", "Hello");
         Assert.True(bytes.Length > 1_000, $"docx only {bytes.Length} bytes");
     }
-
-    // --- .pdf --------------------------------------------------------------
 
     [Fact]
     public void Pdf_is_valid_and_text_is_extractable()
@@ -135,11 +127,9 @@ public class DocumentGenerationTests
         Assert.Contains("Hello document readers", extracted);
     }
 
-    // --- path safety (download endpoint + tools) ---------------------------
-
     [Theory]
-    [InlineData("user-1", "a.pdf", "a.pdf")]           // plain name
-    [InlineData("user-1", "../../etc/passwd", "passwd")] // traversal stripped
+    [InlineData("user-1", "a.pdf", "a.pdf")]           
+    [InlineData("user-1", "../../etc/passwd", "passwd")] 
     [InlineData("user-1", "sub/report.docx", "report.docx")]
     public void Resolve_stays_inside_owner_directory(string owner, string input, string expectedFile)
     {
@@ -152,7 +142,7 @@ public class DocumentGenerationTests
     [Theory]
     [InlineData(null)]
     [InlineData("")]
-    [InlineData("../evil")]   // owner itself must be a plain segment
+    [InlineData("../evil")]   
     public void Resolve_rejects_unsafe_owner(string? owner)
     {
         Assert.Null(DocumentPaths.Resolve("/root", owner, "a.pdf"));
@@ -165,20 +155,18 @@ public class DocumentGenerationTests
         Assert.Null(DocumentPaths.Resolve("/root", "user-1", "../"));
     }
 
-    // --- tool argument normalization ---------------------------------------
-
     [Theory]
-    [InlineData("report.txt", "pdf", "report.pdf")]     // extension corrected
-    [InlineData("report", "docx", "report.docx")]        // extension appended
-    [InlineData("../../evil.pdf", "pdf", "evil.pdf")]    // path stripped
-    [InlineData("REPORT.PDF", "docx", "REPORT.docx")]    // format wins over stale ext
+    [InlineData("report.txt", "pdf", "report.pdf")]     
+    [InlineData("report", "docx", "report.docx")]        
+    [InlineData("../../evil.pdf", "pdf", "evil.pdf")]    
+    [InlineData("REPORT.PDF", "docx", "REPORT.docx")]    
     public void NormalizeFileName_produces_safe_names(string filename, string format, string expected)
     {
         Assert.Equal(expected, ChatDocumentTools.NormalizeFileName(filename, format));
     }
 
     [Theory]
-    [InlineData("report.pdf", "md")]   // only docx/pdf are writable
+    [InlineData("report.pdf", "md")]   
     [InlineData("report.pdf", "exe")]
     [InlineData(null, "pdf")]
     [InlineData("   ", "pdf")]

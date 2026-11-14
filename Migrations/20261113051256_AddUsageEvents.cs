@@ -5,10 +5,8 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace aida.Migrations
 {
-    /// <inheritdoc />
     public partial class AddUsageEvents : Migration
     {
-        /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.CreateTable(
@@ -49,7 +47,6 @@ namespace aida.Migrations
                 columns: new[] { "UserId", "Timestamp" });
         }
 
-        /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(

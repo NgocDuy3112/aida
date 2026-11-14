@@ -9,8 +9,6 @@ public static class DocumentEndpointExtensions
     {
         app.MapGet("/documents/{name}", (string name, ClaimsPrincipal user, IWebHostEnvironment env) =>
         {
-            // Files live under App_Data/documents/{ownerId}/{name}; resolve
-            // strictly inside the caller's own directory (see DocumentPaths).
             var ownerId = user.FindFirstValue(ClaimTypes.NameIdentifier);
             var path = DocumentPaths.Resolve(env.ContentRootPath, ownerId, name);
             if (path is null || !File.Exists(path)) return Results.NotFound();

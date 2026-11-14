@@ -14,7 +14,6 @@ internal sealed class DocumentReader(DirectoryInfo rootDirectory) : IngestionDoc
     {
         if (Path.IsPathFullyQualified(identifier))
         {
-            // Normalize the identifier to its relative path
             identifier = Path.GetRelativePath(rootDirectory.FullName, identifier);
         }
 

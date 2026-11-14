@@ -1,6 +1,5 @@
 @import url('lib/tailwindcss/dist/preflight.css');
 
-/* ---------- Design tokens ---------- */
 :root {
     color-scheme: light dark;
 
@@ -49,11 +48,9 @@
     --content-width: 768px;
 }
 
-/* Manual theme override; wins over the OS preference because it sets color-scheme. */
 :root[data-theme="light"] { color-scheme: light; }
 :root[data-theme="dark"]  { color-scheme: dark; }
 
-/* ---------- Base ---------- */
 *, *::before, *::after { box-sizing: border-box; }
 
 html { min-height: 100%; }
@@ -112,7 +109,6 @@ code {
     }
 }
 
-/* ---------- Shared primitives ---------- */
 .page-width {
     width: 100%;
     max-width: var(--page-width);

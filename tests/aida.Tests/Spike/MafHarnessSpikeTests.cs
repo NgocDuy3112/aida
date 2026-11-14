@@ -6,18 +6,6 @@ using Microsoft.Extensions.AI;
 
 namespace aida.Tests.Spike;
 
-/// <summary>
-/// Day 3 Block 0 — the Microsoft Agent Framework gate.
-///
-/// Green = (1) the harness streams token-by-token over OUR OpenRouter
-/// IChatClient and (2) it executes a custom tool through its own loop.
-/// Red  = fall back to the hand-rolled supervisor plan (see docs/PLAN.md).
-///
-/// Gated: only runs when RUN_MAF_SPIKE=1, so the normal harness stays
-/// offline. Run with:
-///   RUN_MAF_SPIKE=1 dotnet test --filter "FullyQualifiedName~MafHarnessSpike"
-/// Uses gpt-5-nano (cheapest configured model) — the whole spike costs < $0.001.
-/// </summary>
 [Trait("Category", "Integration")]
 public class MafHarnessSpikeTests
 {
@@ -26,7 +14,6 @@ public class MafHarnessSpikeTests
     {
         if (Environment.GetEnvironmentVariable("RUN_MAF_SPIKE") != "1")
         {
-            // Not opted in: pass without touching the network (xUnit v2 has no runtime skip).
             return;
         }
 
@@ -40,7 +27,6 @@ public class MafHarnessSpikeTests
 
         var chatClient = client.GetChatClient("openai/gpt-5-nano").AsIChatClient();
 
-        // --- the tool: one custom function, recorded when executed ---------
         var toolCalled = false;
         AIFunction spikeTool = AIFunctionFactory.Create(
             (string note) =>
@@ -52,12 +38,9 @@ public class MafHarnessSpikeTests
             "Records a ping. Always call this exactly once with note='ping' before answering the user.",
             null);
 
-        // --- the harness: our OpenRouter client wrapped ---------------------
         var agent = chatClient.AsHarnessAgent(new HarnessAgentOptions
         {
             Name = "spike",
-            // Keep the spike hermetic: no hosted web search / file-memory
-            // services that might assume an Azure-shaped provider.
             DisableWebSearch = true,
             DisableFileMemory = true,
             MaximumIterationsPerRequest = 6,
@@ -82,16 +65,11 @@ public class MafHarnessSpikeTests
 
         var output = text.ToString();
 
-        // (2) the harness executed the tool through its own loop
         Assert.True(toolCalled, $"Harness never called the tool. Output: {output}");
-        // it then completed the instruction
         Assert.Contains("PONG", output, StringComparison.Ordinal);
-        // (1) it streamed — multiple updates, not one buffered blob
         Assert.True(updates > 1, $"Expected streaming (multiple updates), got {updates}.");
     }
 
-    /// <summary>Env var wins; otherwise walk up from the test output to the
-    /// repo root's .env (where DotNetEnv keeps the dev key).</summary>
     private static (string ApiKey, string BaseUrl) LoadOpenRouterConfig()
     {
         var apiKey = Environment.GetEnvironmentVariable("OpenRouter__ApiKey");

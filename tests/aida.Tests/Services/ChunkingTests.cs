@@ -7,8 +7,6 @@ public class ChunkingTests
     private const int MaxChunkChars = 1200;
     private const int OverlapChars = 150;
 
-    /// <summary>Unique, whitespace-free text so every chunk is a distinct
-    /// substring and Trim() is a no-op — offsets stay exact.</summary>
     private static string UniqueText(int items) =>
         string.Concat(Enumerable.Range(0, items).Select(i => $"w{i:D6}"));
 
@@ -36,13 +34,10 @@ public class ChunkingTests
     [Fact]
     public void Long_text_respects_max_chunk_size()
     {
-        var chunks = DocumentIngestor.Chunk(UniqueText(1700)); // ~10 200 chars
+        var chunks = DocumentIngestor.Chunk(UniqueText(1700)); 
 
         Assert.All(chunks, c => Assert.InRange(c.Length, 1, MaxChunkChars));
         Assert.True(chunks.Count >= 5, $"Expected several chunks, got {chunks.Count}");
-        // Regression: the tail must not degenerate into ~150 one-char-step
-        // slivers (the old loop advanced by max(1, length-150) on the last
-        // window, re-chunking the final 150 chars over and over).
         Assert.True(chunks.Count <= 15, $"Expected ≤15 chunks, got {chunks.Count}");
     }
 
@@ -88,7 +83,6 @@ public class ChunkingTests
 
         var chunks = DocumentIngestor.Chunk(text);
 
-        // First cut happens at the paragraph break (700), not the 1200 window.
         Assert.Equal(new string('A', 700), chunks[0]);
         Assert.Equal(2, chunks.Count);
         Assert.Contains("\n\n", chunks[1], StringComparison.Ordinal);
@@ -102,7 +96,6 @@ public class ChunkingTests
 
         var chunks = DocumentIngestor.Chunk(text);
 
-        // The window edge would be exactly 1200; a sentence cut lands earlier.
         Assert.True(chunks[0].Length < MaxChunkChars,
             $"Expected a sentence cut, got the full window ({chunks[0].Length}).");
         Assert.EndsWith(".", chunks[0], StringComparison.Ordinal);

@@ -2,11 +2,8 @@ using aida.Data;
 
 namespace aida.Services.Usage;
 
-/// <summary>Records one usage event per LLM call. Fire-and-forget safe.</summary>
 public interface IUsageTracker
 {
-    /// <summary>Persists the event. Never throws — usage bookkeeping must not
-    /// break a chat response.</summary>
     Task RecordAsync(UsageEvent evt, CancellationToken ct = default);
 }
 
@@ -28,8 +25,6 @@ internal sealed class UsageTracker(
         }
         catch (Exception ex)
         {
-            // Swallowed on purpose: callers fire-and-forget, and a metrics
-            // failure must never surface in (or crash) the user's chat.
             logger.LogWarning(ex, "Could not record usage event for {Model}.", evt.Model);
         }
     }

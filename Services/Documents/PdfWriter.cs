@@ -4,8 +4,6 @@ using QuestPDF.Infrastructure;
 
 namespace aida.Services.Documents;
 
-/// <summary>Markdown-lite → PDF via QuestPDF. Requires
-/// QuestPDF.Settings.License to be set once at startup (Program.cs).</summary>
 internal static class PdfWriter
 {
     internal static byte[] Write(string title, string markdown)

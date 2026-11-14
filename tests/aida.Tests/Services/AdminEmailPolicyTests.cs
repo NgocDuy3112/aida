@@ -16,7 +16,7 @@ public class AdminEmailPolicyTests
 
     [Theory]
     [InlineData("admin@example.com")]
-    [InlineData("ADMIN@example.com")]   // case-insensitive
+    [InlineData("ADMIN@example.com")]   
     public void Listed_email_is_admin(string email)
     {
         Assert.True(AuthEndpointExtensions.IsAdminEmail(Config("admin@example.com"), email));

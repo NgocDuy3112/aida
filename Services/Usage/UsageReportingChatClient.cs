@@ -5,19 +5,6 @@ using Microsoft.Extensions.AI;
 
 namespace aida.Services.Usage;
 
-/// <summary>
-/// IChatClient middleware that records one <see cref="UsageEvent"/> per
-/// underlying model call. Wrapped underneath the Agent Framework harness, a
-/// multi-call agent turn (plan → tool rounds → synthesis) becomes per-call
-/// admin rows whose <see cref="UsageEvent.Step"/> says what preceded the call
-/// ("plan", "after read_document", …). Ask mode never wraps this — Chat.razor
-/// logs exactly one row per send there.
-///
-/// Each model call also emits an <b>OpenTelemetry span</b> on the
-/// <c>Aida.Llm</c> ActivitySource (subscribed in Program.cs), tagged with
-/// GenAI semantic conventions — one trace therefore shows the request AND
-/// every plan / tool-round / synthesis call nested inside it.
-/// </summary>
 internal sealed class UsageReportingChatClient : DelegatingChatClient
 {
     private static readonly ActivitySource Llm = new("Aida.Llm", "1.0.0");
@@ -151,8 +138,6 @@ internal sealed class UsageReportingChatClient : DelegatingChatClient
                     if (content is FunctionCallContent) functionCalls++;
                 }
 
-                // Legal: the enclosing try has only a finally (yield is banned
-                // in try blocks that have catch clauses).
                 yield return update;
             }
         }
@@ -167,8 +152,6 @@ internal sealed class UsageReportingChatClient : DelegatingChatClient
         }
     }
 
-    /// <summary>What preceded this call: "plan" for the first call of a turn,
-    /// otherwise the most recent tool the agent executed.</summary>
     private static string StepFor(IReadOnlyList<ChatMessage> messages)
     {
         string? lastTool = null;

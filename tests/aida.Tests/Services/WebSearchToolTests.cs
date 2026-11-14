@@ -10,8 +10,6 @@ public class WebSearchToolTests
             .AddInMemoryCollection(settings.ToDictionary(s => s.Key, s => (string?)s.Value))
             .Build());
 
-    // --- tool registration gating ------------------------------------------
-
     [Fact]
     public void Create_returns_null_without_an_api_key()
     {
@@ -28,8 +26,6 @@ public class WebSearchToolTests
         Assert.NotNull(function);
         Assert.Equal("web_search", function!.Name);
     }
-
-    // --- response formatting (pure) ----------------------------------------
 
     [Fact]
     public void FormatResponse_formats_answer_and_results()

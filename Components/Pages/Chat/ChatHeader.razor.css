@@ -26,7 +26,6 @@
         white-space: nowrap;
     }
 
-/* Drawer toggle is a mobile-only affordance; desktop shows the fixed sidebar. */
 .sidebar-toggle { display: none; }
 
 @media (max-width: 900px) {
