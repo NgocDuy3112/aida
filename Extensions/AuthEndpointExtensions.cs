@@ -27,7 +27,8 @@ public static class AuthEndpointExtensions
 
         app.MapGet("/account/external-login-callback", async (
             string? returnUrl, SignInManager<AppUser> signInManager, UserManager<AppUser> userManager,
-            RoleManager<IdentityRole> roleManager, IConfiguration config) =>
+            RoleManager<IdentityRole> roleManager, IConfiguration config,
+            ILogger<Program> logger) =>
         {
             var target = SafeReturnUrl(returnUrl);
 
@@ -51,7 +52,14 @@ public static class AuthEndpointExtensions
             var email = info.Principal.FindFirstValue(ClaimTypes.Email);
             var verified = string.Equals(info.Principal.FindFirstValue("email_verified"), "true",
                                          StringComparison.OrdinalIgnoreCase);
-            if (email is null || !verified) return Results.Redirect("/login?error=email");
+            if (email is null || !verified)
+            {
+                logger.LogWarning(
+                    "Google login rejected: email={Email} verified={Verified} claims={Claims}",
+                    email, verified,
+                    string.Join(", ", info.Principal.Claims.Select(c => c.Type)));
+                return Results.Redirect("/login?error=email");
+            }
 
             var user = await userManager.FindByEmailAsync(email);
             if (user is null)

@@ -12,6 +12,11 @@
             <p class="login-sub">Ask questions about your own documents.</p>
         </div>
 
+        @if (!string.IsNullOrEmpty(Error))
+        {
+            <p class="login-error">@ErrorMessage</p>
+        }
+
         @if (GoogleConfigured)
         {
             <a class="btn-google" href="/account/external-login?provider=Google">
@@ -44,6 +49,31 @@
 
 @code {
     [Inject] public IWebHostEnvironment Env { get; set; } = default!;
+
+    [SupplyParameterFromQuery]
+    public string? Error { get; set; }
+
+    private string ErrorMessage
+    {
+        get
+        {
+            if (Error == "email")
+                return "Google didn't return a verified email address for this account — try another account.";
+            if (Error == "external")
+                return "Sign-in was interrupted — please try again.";
+            if (Error == "unconfirmed")
+                return "This email address is not confirmed.";
+            if (Error == "notconfigured")
+                return "Google sign-in isn't configured on this server.";
+            if (Error == "create")
+                return "Couldn't create your account — please try again.";
+            if (Error == "link")
+                return "Couldn't link your Google account — please try again.";
+            if (Error == "provider")
+                return "Unknown sign-in provider.";
+            return "Sign-in failed — please try again.";
+        }
+    }
 
     private bool GoogleConfigured =>
         !string.IsNullOrWhiteSpace(Config["Authentication:Google:ClientId"])
