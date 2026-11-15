@@ -89,6 +89,19 @@ public static class AuthEndpointExtensions
             return Results.Redirect("/login");
         }).RequireAuthorization();
 
+        app.MapPost("/account/google/disconnect", async (
+            ClaimsPrincipal principal, UserManager<AppUser> userManager) =>
+        {
+            var user = await userManager.GetUserAsync(principal);
+            if (user is not null)
+            {
+                user.GoogleRefreshToken = null;
+                user.GoogleRefreshTokenObtainedUtc = null;
+                await userManager.UpdateAsync(user);
+            }
+            return Results.Redirect("/");
+        }).RequireAuthorization();
+
         if (env.IsDevelopment())
         {
             app.MapGet("/dev-login", async (
