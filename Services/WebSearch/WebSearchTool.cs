@@ -5,16 +5,10 @@ using System.Text.Json;
 
 namespace aida.Services.WebSearch;
 
-/// <summary>
-/// Tavily-backed web_search tool for the agent harness. Registers ONLY when
-/// <c>WebSearch:ApiKey</c> is configured — without a key the harness simply
-/// never sees the tool (document-only research keeps working).
-/// </summary>
 public sealed class WebSearchTool(HttpClient http, IConfiguration config)
 {
     internal const string Endpoint = "https://api.tavily.com/search";
 
-    /// <summary>null when no API key is configured (tool disabled).</summary>
     public AIFunction? Create()
     {
         var apiKey = config["WebSearch:ApiKey"];
@@ -63,7 +57,6 @@ public sealed class WebSearchTool(HttpClient http, IConfiguration config)
         }
     }
 
-    /// <summary>Tavily response → compact text for the model. Pure and testable.</summary>
     internal static string FormatResponse(string json)
     {
         using var doc = JsonDocument.Parse(json);

@@ -5,16 +5,10 @@ using Microsoft.Extensions.AI;
 
 namespace aida.Services.Usage;
 
-/// <summary>
-/// IChatClient middleware that records one <see cref="UsageEvent"/> per
-/// underlying model call. Wrapped underneath the Agent Framework harness, a
-/// multi-call agent turn (plan → tool rounds → synthesis) becomes per-call
-/// admin rows whose <see cref="UsageEvent.Step"/> says what preceded the call
-/// ("plan", "after read_document", …). Ask mode never wraps this — Chat.razor
-/// logs exactly one row per send there.
-/// </summary>
 internal sealed class UsageReportingChatClient : DelegatingChatClient
 {
+    private static readonly ActivitySource Llm = new("Aida.Llm", "1.0.0");
+
     private readonly IUsageTracker _tracker;
     private readonly PricingTable _pricing;
     private readonly string _userId;
@@ -46,9 +40,30 @@ internal sealed class UsageReportingChatClient : DelegatingChatClient
         CancellationToken cancellationToken = default)
     {
         var request = messages as IReadOnlyList<ChatMessage> ?? messages.ToList();
+        var step = _stepLabel ?? StepFor(request);
         var clock = Stopwatch.StartNew();
 
-        var response = await base.GetResponseAsync(request, options, cancellationToken);
+        using var activity = Llm.StartActivity($"llm {_model}");
+        activity?.SetTag("gen_ai.operation.name", "chat");
+        activity?.SetTag("gen_ai.request.model", _model);
+        activity?.SetTag("aida.mode", _mode);
+        activity?.SetTag("aida.step", step);
+
+        ChatResponse response;
+        try
+        {
+            response = await base.GetResponseAsync(request, options, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, "cancelled");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            throw;
+        }
         clock.Stop();
 
         var functionCalls = response.Messages
@@ -56,8 +71,12 @@ internal sealed class UsageReportingChatClient : DelegatingChatClient
             .OfType<FunctionCallContent>()
             .Count();
 
+        activity?.SetTag("gen_ai.usage.input_tokens", response.Usage?.InputTokenCount);
+        activity?.SetTag("gen_ai.usage.output_tokens", response.Usage?.OutputTokenCount);
+        activity?.SetTag("aida.tool_calls", functionCalls);
+
         Record(response.Usage, functionCalls, clock.ElapsedMilliseconds,
-            _stepLabel ?? StepFor(request), error: null);
+            step, error: null);
 
         return response;
     }
@@ -80,6 +99,12 @@ internal sealed class UsageReportingChatClient : DelegatingChatClient
         var functionCalls = 0;
         string? error = null;
 
+        using var activity = Llm.StartActivity($"llm {_model}");
+        activity?.SetTag("gen_ai.operation.name", "chat");
+        activity?.SetTag("gen_ai.request.model", _model);
+        activity?.SetTag("aida.mode", _mode);
+        activity?.SetTag("aida.step", step);
+
         var enumerator = base
             .GetStreamingResponseAsync(request, options, cancellationToken)
             .GetAsyncEnumerator(cancellationToken);
@@ -97,11 +122,13 @@ internal sealed class UsageReportingChatClient : DelegatingChatClient
                 catch (OperationCanceledException)
                 {
                     error = "cancelled";
+                    activity?.SetStatus(ActivityStatusCode.Error, "cancelled");
                     throw;
                 }
                 catch (Exception ex)
                 {
                     error = ex.Message;
+                    activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
                     throw;
                 }
 
@@ -111,8 +138,6 @@ internal sealed class UsageReportingChatClient : DelegatingChatClient
                     if (content is FunctionCallContent) functionCalls++;
                 }
 
-                // Legal: the enclosing try has only a finally (yield is banned
-                // in try blocks that have catch clauses).
                 yield return update;
             }
         }
@@ -120,12 +145,13 @@ internal sealed class UsageReportingChatClient : DelegatingChatClient
         {
             clock.Stop();
             await enumerator.DisposeAsync();
+            activity?.SetTag("gen_ai.usage.input_tokens", usage?.InputTokenCount);
+            activity?.SetTag("gen_ai.usage.output_tokens", usage?.OutputTokenCount);
+            activity?.SetTag("aida.tool_calls", functionCalls);
             Record(usage, functionCalls, clock.ElapsedMilliseconds, step, error);
         }
     }
 
-    /// <summary>What preceded this call: "plan" for the first call of a turn,
-    /// otherwise the most recent tool the agent executed.</summary>
     private static string StepFor(IReadOnlyList<ChatMessage> messages)
     {
         string? lastTool = null;

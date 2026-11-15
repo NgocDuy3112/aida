@@ -6,10 +6,6 @@ using Pgvector;
 
 namespace aida.Services.Ingestion;
 
-/// <summary>
-/// Chunks and embeds one uploaded document into Postgres. Replaces the whole-folder
-/// ingestion pipeline: one file in, one document's chunks out, scoped to its owner.
-/// </summary>
 public class DocumentIngestor(
     IServiceScopeFactory scopeFactory,
     IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
@@ -74,7 +70,6 @@ public class DocumentIngestor(
         {
             var length = Math.Min(MaxChunkChars, text.Length - position);
 
-            // Prefer cutting at a paragraph, then sentence boundary.
             if (position + length < text.Length)
             {
                 var window = text.AsSpan(position, length);
@@ -89,9 +84,6 @@ public class DocumentIngestor(
             var piece = text.Substring(position, length).Trim();
             if (piece.Length > 0) chunks.Add(piece);
 
-            // The window consumed the end of the text: stop. Without this, the
-            // tail shrinks below OverlapChars and Math.Max(1, ...) below would
-            // slide one character at a time, emitting a sliver chunk per char.
             if (position + length >= text.Length) break;
 
             position += Math.Max(1, length - OverlapChars);

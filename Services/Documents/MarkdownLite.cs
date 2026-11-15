@@ -2,8 +2,6 @@ using System.Text.RegularExpressions;
 
 namespace aida.Services.Documents;
 
-/// <summary>A markdown-lite block: the subset the model reliably produces and
-/// both document writers can render.</summary>
 internal abstract record MdBlock
 {
     internal sealed record Heading(int Level, string Text) : MdBlock;
@@ -12,12 +10,6 @@ internal abstract record MdBlock
     internal sealed record Code(string Text) : MdBlock;
 }
 
-/// <summary>
-/// Minimal markdown parser: ATX headings, bullet lists, fenced code,
-/// blockquotes and paragraphs, plus an inline tokenizer for bold/italic/code.
-/// Deliberately not a full markdown implementation — predictable output for
-/// document generation beats spec compliance.
-/// </summary>
 internal static partial class MarkdownLite
 {
     internal static List<MdBlock> Parse(string markdown)
@@ -84,8 +76,6 @@ internal static partial class MarkdownLite
                 continue;
             }
 
-            // "> quote" and numbered items ("1. …") render as plain paragraphs
-            // with their marker kept — no numbering.xml / quote styles in v1.
             paragraph.Add(line);
         }
 
@@ -96,7 +86,6 @@ internal static partial class MarkdownLite
         return blocks;
     }
 
-    /// <summary>Tokenizer for inline markers: **bold**, *italic*, `code`.</summary>
     internal static IEnumerable<(string Text, bool Bold, bool Italic, bool Code)> Inline(string text)
     {
         if (string.IsNullOrEmpty(text)) yield break;
@@ -114,7 +103,6 @@ internal static partial class MarkdownLite
         }
     }
 
-    /// <summary>Inline markers stripped — plain text for PDF/simple paths.</summary>
     internal static string Plain(string text)
     {
         var parts = Inline(text);

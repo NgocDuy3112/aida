@@ -28,7 +28,6 @@ public static class IdentityExtensions
         var googleSecret = config["Authentication:Google:ClientSecret"];
         var googleConfigured = !string.IsNullOrWhiteSpace(googleId) && !string.IsNullOrWhiteSpace(googleSecret);
 
-        // Fails at boot in production; dev bypass keeps working with empty creds.
         if (!env.IsDevelopment() && !googleConfigured)
         {
             throw new InvalidOperationException(
@@ -43,8 +42,6 @@ public static class IdentityExtensions
 
         auth.AddIdentityCookies();
 
-        // Registering the scheme with empty credentials throws during OAuthOptions.Validate()
-        // the first time authentication runs, so only register it when it is usable.
         if (googleConfigured)
         {
             auth.AddGoogle("Google", o =>
@@ -52,6 +49,11 @@ public static class IdentityExtensions
                 o.ClientId = googleId!;
                 o.ClientSecret = googleSecret!;
                 o.CallbackPath = "/signin-google";
+                o.AccessType = "offline";
+                o.SaveTokens = true;
+                o.Scope.Add("https://www.googleapis.com/auth/drive.file");
+                o.Scope.Add("https://www.googleapis.com/auth/spreadsheets");
+                o.ClaimActions.MapJsonKey("email_verified", "email_verified");
             });
         }
 
@@ -69,7 +71,6 @@ public static class IdentityExtensions
         return services;
     }
 
-    /// <summary>True when both Google client id and secret are configured.</summary>
     public static bool IsGoogleConfigured(IConfiguration config)
         => !string.IsNullOrWhiteSpace(config["Authentication:Google:ClientId"])
            && !string.IsNullOrWhiteSpace(config["Authentication:Google:ClientSecret"]);

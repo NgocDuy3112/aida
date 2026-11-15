@@ -39,8 +39,6 @@ public class SystemOneRouterTests
     private static HttpResponseMessage Choice(string choice) =>
         Json($"{{\"answers\":{{\"tier\":{{\"choice\":\"{choice}\"}}}}}}");
 
-    // --- tier mapping -----------------------------------------------------
-
     [Theory]
     [InlineData("strong", "openai/strong")]
     [InlineData("moderate", "openai/moderate")]
@@ -61,8 +59,6 @@ public class SystemOneRouterTests
 
         Assert.Equal("openai/light", await router.PickChatModelAsync("hello"));
     }
-
-    // --- fail-safe fallback ------------------------------------------------
 
     [Fact]
     public async Task Server_error_falls_back_to_light()
@@ -106,12 +102,9 @@ public class SystemOneRouterTests
         using var cts = new CancellationTokenSource();
         await cts.CancelAsync();
 
-        // The fail-safe must not turn a user-initiated cancel into a light-tier call.
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => router.PickChatModelAsync("hello", cts.Token));
     }
-
-    // --- request contract --------------------------------------------------
 
     [Fact]
     public async Task Request_carries_bearer_token_and_system_one_shape()
@@ -125,14 +118,11 @@ public class SystemOneRouterTests
 
         using var doc = JsonDocument.Parse(handler.LastRequestBody!);
         Assert.Equal("typesafe/jev-test", doc.RootElement.GetProperty("model").GetString());
-        // state is the raw message string (current contract).
         Assert.Equal("What is 2+2?", doc.RootElement.GetProperty("state").GetString());
         Assert.Equal("choice",
             doc.RootElement.GetProperty("questions").GetProperty("tier")
                 .GetProperty("type").GetString());
     }
-
-    // --- stub ---------------------------------------------------------------
 
     private sealed class StubHandler(
         Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler

@@ -5,7 +5,6 @@ using Pgvector;
 
 namespace aida.Services;
 
-/// <summary>Hybrid retrieval over a single owner's chunks.</summary>
 public class SemanticSearch(
     IServiceScopeFactory scopeFactory,
     IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator)
@@ -34,12 +33,8 @@ public class SemanticSearch(
         var embedded = await embeddingGenerator.GenerateAsync([text]);
         var query = new Vector(embedded[0].Vector.ToArray());
 
-        // Empty string means "no document filter" so the parameter is never NULL
-        // and Npgsql can still infer its type.
         var filter = documentIdFilter ?? string.Empty;
 
-        // Hybrid retrieval: vector KNN and full-text ranking are each scored with
-        // reciprocal rank fusion, so exact tokens (part numbers, names) survive.
         var hits = await db.Database.SqlQuery<Hit>($"""
             WITH vec AS (
                 SELECT c."Id",

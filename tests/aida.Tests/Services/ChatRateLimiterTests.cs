@@ -6,8 +6,6 @@ namespace aida.Tests.Services;
 
 public class ChatRateLimiterTests
 {
-    /// <summary>In-memory limiter (no Redis) with a manually advanced clock
-    /// so window rollover is tested without sleeping.</summary>
     private sealed class TestLimiter(int chatPerMinute) : ChatRateLimiter(
         redis: null,
         configuration: new ConfigurationBuilder()

@@ -9,8 +9,6 @@ public class ConversationStore(
     IServiceScopeFactory scopeFactory,
     IDistributedCache cache) : IConversationStore
 {
-    /// <summary>Short-lived so the sidebar stays snappy across the per-message
-    /// reloads without ever showing stale titles for long.</summary>
     private static readonly TimeSpan ListCacheTtl = TimeSpan.FromSeconds(60);
 
     private static string ListKey(string userId) => $"aida:conversations:{userId}";

@@ -7,10 +7,8 @@ using Pgvector;
 
 namespace aida.Migrations
 {
-    /// <inheritdoc />
     public partial class InitialPgvectorSchema : Migration
     {
-        /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.AlterDatabase()
@@ -270,8 +268,6 @@ namespace aida.Migrations
                 .Annotation("Npgsql:IndexMethod", "hnsw")
                 .Annotation("Npgsql:IndexOperators", new[] { "vector_cosine_ops" });
 
-            // EF cannot express a functional index over to_tsvector, but the keyword
-            // half of the hybrid search needs it or it degrades to a sequential scan.
             migrationBuilder.Sql(
                 """
                 CREATE INDEX IF NOT EXISTS "IX_Chunks_Text_Fts"
@@ -284,7 +280,6 @@ namespace aida.Migrations
                 columns: new[] { "UserId", "UpdatedAt" });
         }
 
-        /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(

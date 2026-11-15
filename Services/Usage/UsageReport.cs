@@ -27,17 +27,11 @@ public sealed record AdminOverview(
     IReadOnlyList<UserStat> TopUsers,
     IReadOnlyList<FailureStat> RecentFailures);
 
-/// <summary>Aggregates usage events for the admin portal.</summary>
 public interface IUsageReport
 {
     Task<AdminOverview> GetAsync(int days = 14, CancellationToken ct = default);
 }
 
-/// <summary>
-/// Loads the window's rows once and aggregates in memory — avoids provider
-/// translation quirks around date bucketing and keeps the queries trivial.
-/// Fine at chat-scale (thousands of rows per fortnight).
-/// </summary>
 internal sealed class UsageReport(AppDbContext db) : IUsageReport
 {
     public async Task<AdminOverview> GetAsync(int days = 14, CancellationToken ct = default)

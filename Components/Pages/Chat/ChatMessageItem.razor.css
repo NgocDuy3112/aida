@@ -45,7 +45,6 @@
 .assistant-search-content { align-content: center; }
 .assistant-search-phrase { font-weight: 600; color: var(--text); }
 
-/* Markdown rendering for assistant messages */
 ::deep p + p { margin-top: var(--space-3); }
 
 ::deep ul,

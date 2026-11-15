@@ -89,10 +89,6 @@ else if (Message.Role == ChatRole.Assistant)
     [Parameter]
     public bool InProgress { get; set;}
 
-    /// <summary>Per-token counter from the stream loop. Never read — its value
-    /// changing is what forces this component to re-render each token, since
-    /// the mutated Message instance alone trips Blazor's reference-equality
-    /// parameter skip and the markdown attribute would never repaint.</summary>
     [Parameter]
     public int StreamVersion { get; set; }
 

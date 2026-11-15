@@ -2,6 +2,7 @@
 @attribute [Authorize]
 @using System.Security.Claims
 @using System.Diagnostics
+@using Microsoft.AspNetCore.Identity
 @using OpenAI
 @using Microsoft.Agents.AI
 @implements IDisposable
@@ -14,10 +15,13 @@
 @inject DocumentService Documents
 @inject IWebHostEnvironment Env
 @inject ILogger<Chat> Logger
+@inject GoogleWorkspaceService GoogleWorkspace
+@inject UserManager<AppUser> UserManager
 @inject IChatRateLimiter RateLimiter
 @inject IUsageTracker UsageTracker
 @inject PricingTable Pricing
 @inject ParallelResearchTool ResearchTools
+@inject CrewWriterTool CrewWriter
 @inject WebSearchTool WebSearch
 
 <PageTitle>Chat</PageTitle>
@@ -42,8 +46,7 @@
         OnToggleSidebar="() => sidebarOpen = !sidebarOpen"
         />
 
-        <ChatMessageList Messages="@messages" InProgressMessage="@currentResponseMessage" StreamVersion="@streamVersion" ProcessSteps="@processSteps"
-            AgentTodos="@agentTodos" AgentMode="@agentMode">
+        <ChatMessageList Messages="@messages" InProgressMessage="@currentResponseMessage" StreamVersion="@streamVersion" ProcessSteps="@processSteps">
             <NoMessagesContent>
                 <div class="empty-state">
                     <h2>Ask about your documents</h2>
@@ -58,12 +61,29 @@
                 <p class="status">@status</p>
             }
             <ChatSuggestions OnSelected="@AddUserMessageAsync" @ref="@chatSuggestions"/>
+            @if (currentResponseMessage is not null && (agentMode is not null || agentTodos.Count > 0))
+            {
+                <div class="agent-plan" aria-live="polite">
+                    @if (agentMode is not null)
+                    {
+                        <div class="agent-mode">@ModeLabel(agentMode)</div>
+                    }
+                    @foreach (var todo in agentTodos)
+                    {
+                        <div class="agent-todo @(todo.IsComplete ? "is-done" : null)">
+                            <span class="todo-mark" aria-hidden="true">@(todo.IsComplete ? "✓" : "○")</span>
+                            <span class="todo-title">@todo.Title</span>
+                        </div>
+                    }
+                </div>
+            }
             <ChatInput
             OnSend="@AddUserMessageAsync"
             OnFileSelected="@UploadAsync"
             AttachedFile="@attachedFileName"
             @bind-PinnedModel="pinnedModel"
             @bind-Mode="mode"
+            @bind-Crew="crew"
             StatusChanged="@((string? s) => status = s)"
             @ref="@chatInput"
             />
@@ -89,9 +109,8 @@
     private int streamVersion;
     private bool sidebarOpen;
     private ChatMode mode = ChatMode.Ask;
+    private CrewState crew = null!;
 
-    /// <summary>Copilot-style progress log shown next to the in-progress
-    /// message: Thinking… → Searching… → Using tool → Generating.</summary>
     private readonly List<string> processSteps = [];
 
     private void AddStep(string step)
@@ -102,6 +121,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        crew = CrewState.FromConfig(Config);
         systemPrompt = File.ReadAllText(
             Path.Combine(Env.ContentRootPath, "prompts", "SYSTEM.md"));
 
@@ -114,8 +134,6 @@
     {
         if (string.IsNullOrWhiteSpace(userId)) return;
 
-        // Admission control before any side effects — a throttled send must not
-        // cancel an in-flight reply or touch the conversation.
         if (!await RateLimiter.TryAcquireAsync(userId))
         {
             status = "You're sending messages too quickly — wait a moment and try again.";
@@ -147,8 +165,9 @@
             await chatInput!.FocusAsync();
 
 
+            var directorChoice = pinnedModel ?? (mode == ChatMode.Agent ? crew.DirectorModel : null);
             var forcedModel = ChatModePolicy.ForcedModel(
-                mode, pinnedModel, Config["OpenRouter:StrongModel"]);
+                mode, directorChoice, Config["OpenRouter:StrongModel"]);
             var modelTask = forcedModel is not null
                 ? Task.FromResult(forcedModel)
                 : Router.PickChatModelAsync(question);
@@ -176,16 +195,12 @@
             await InvokeAsync(StateHasChanged);
 
             var outgoing = messages.ToList();
-            // Swap the text for the retrieval-augmented prompt but keep any
-            // attached images — multimodal content rides on the same message.
             var outgoingContents = new List<AIContent> { new TextContent(prompt) };
             outgoingContents.AddRange(outgoing[^1].Contents.OfType<DataContent>());
             outgoing[^1] = new ChatMessage(ChatRole.User, outgoingContents);
 
             if (mode == ChatMode.Agent)
             {
-                // Microsoft Agent Framework: plan → execute tools → synthesize.
-                // The harness's session keeps plan/todos/history across turns.
                 var (harness, session) = await GetAgentRunAsync(conversationId!.Value, model);
                 await foreach (var update in harness.RunStreamingAsync(
                     prompt, session, cancellationToken: currentResponseCancellation.Token))
@@ -195,7 +210,6 @@
             }
             else
             {
-                // Ask: single-pass pipeline; no tools on this path.
                 var chatClient = CreateChatClient(model);
                 await foreach (var update in chatClient.GetStreamingResponseAsync(
                     outgoing, new ChatOptions(), currentResponseCancellation.Token))
@@ -205,8 +219,6 @@
             }
 
             llmClock.Stop();
-            // Agent turns log one row PER MODEL CALL via UsageReportingChatClient
-            // (plan/tool rounds/synthesis); Ask gets exactly one row per send.
             if (mode != ChatMode.Agent)
             {
                 _ = UsageTracker.RecordAsync(new UsageEvent
@@ -278,13 +290,8 @@
             });
         }
 
-        // Shared by both stream paths: tool/usage accounting plus the forced
-        // per-token repaint (Blazor's reference-equality parameter skip would
-        // otherwise freeze the markdown attribute mid-stream — see StreamVersion).
         async Task ProcessUpdateAsync(string? text, AgentSession? session, IList<AIContent> contents)
         {
-            // Harness plan/todos live in the session, not the stream — pull
-            // them a few times a second while the agent is working.
             if (session is not null && planPoll.ElapsedMilliseconds >= 300)
             {
                 planPoll.Restart();
@@ -305,7 +312,6 @@
                 }
             }
 
-            // Reasoning/harness phases emit empty deltas — nothing to paint yet.
             if (string.IsNullOrEmpty(text)) return;
 
             responseText!.Text += text;
@@ -339,22 +345,22 @@
 
     private readonly Dictionary<string, IChatClient> chatClients = [];
 
-    /// <summary>One harness + session per conversation (circuit-scoped): the
-    /// session carries plan/todos/history across turns. If the pinned model
-    /// changes mid-conversation both reset — rare, beats a wrong model.</summary>
-    private sealed record AgentRun(HarnessAgent Agent, AgentSession Session, string Model);
+    private sealed record AgentRun(HarnessAgent Agent, AgentSession Session, string Model, CrewState Crew);
 
     private readonly Dictionary<Guid, AgentRun> agentRuns = [];
 
-    // Harness plan/todo state is pull-based (session services, not stream
-    // content) — these two wrappers are stateless and session-agnostic.
     private readonly TodoProvider todoProvider = new();
     private readonly AgentModeProvider agentModeProvider = new();
     private string? agentMode;
     private List<AgentTodo> agentTodos = [];
 
-    /// <summary>Ask-mode streaming client — no tools ever run on that path
-    /// (Agent mode uses the harness, which owns its own tool loop).</summary>
+    private static string ModeLabel(string mode) => mode.ToLowerInvariant() switch
+    {
+        "plan" => "Planning",
+        "execute" => "Executing",
+        _ => mode,
+    };
+
     private IChatClient CreateChatClient(string model)
     {
         if (!chatClients.TryGetValue(model, out var client))
@@ -365,20 +371,13 @@
         return client;
     }
 
-    /// <summary>
-    /// Microsoft Agent Framework harness for Agent mode: plans, executes tools,
-    /// synthesizes — all state (plan/todos/history) lives in the session.
-    /// Built on a PLAIN IChatClient: the harness runs its own tool loop, so the
-    /// UseFunctionInvocation middleware must not sit underneath it.
-    /// </summary>
     private async Task<(HarnessAgent Agent, AgentSession Session)> GetAgentRunAsync(
         Guid conversationId, string model)
     {
-        if (agentRuns.TryGetValue(conversationId, out var existing) && existing.Model == model)
+        if (agentRuns.TryGetValue(conversationId, out var existing)
+            && existing.Model == model && existing.Crew == crew)
             return (existing.Agent, existing.Session);
 
-        // Per-call cost logging lives *under* the harness: every model call it
-        // makes (plan → tool rounds → synthesis) becomes its own UsageEvent.
         var reporting = new UsageReportingChatClient(
             OpenAi.GetChatClient(model).AsIChatClient(),
             UsageTracker, Pricing, userId, model, "agent");
@@ -387,45 +386,38 @@
             .AsHarnessAgent(new HarnessAgentOptions
             {
                 Name = "Document research agent",
-                // SYSTEM.md: Vietnamese answers, citations, document tool rules.
                 HarnessInstructions = systemPrompt,
                 MaximumIterationsPerRequest = 12,
-                // MAF's hosted web search stays OFF (it assumes an Azure-shaped
-                // provider; web search arrives via our Tavily web_search tool
-                // instead). File memory off: the filesystem is reachable only
-                // through the owner-scoped document tools below.
                 DisableWebSearch = true,
                 DisableFileMemory = true,
                 ChatOptions = new ChatOptions
                 {
                     Tools = BuildAgentTools(model),
+                    Reasoning = CrewOptions.Reasoning(crew.DirectorThinking),
                 },
             });
 
         var session = await agent.CreateSessionAsync();
-        agentRuns[conversationId] = new AgentRun(agent, session, model);
+        agentRuns[conversationId] = new AgentRun(agent, session, model, crew);
         return (agent, session);
     }
 
-    /// <summary>Everything the harness may call: owner-scoped document tools,
-    /// the parallel worker fan-out, and web search once a key is configured.</summary>
     private List<AITool> BuildAgentTools(string model)
     {
         List<AITool> tools =
         [
             ChatDocumentTools.CreateReadDocument(userId, Env),
-            ChatDocumentTools.CreateSaveDocument(userId, Documents),
-            ResearchTools.Create(userId, model),
+            ChatDocumentTools.CreateSaveDocument(userId, Documents, GoogleWorkspace, UserManager),
+            ResearchTools.Create(userId, crew.ResearcherModel, crew.ResearcherThinking),
+            CrewWriter.Create(userId, crew.WriterModel, crew.WriterThinking),
         ];
 
-        var search = WebSearch.Create(); // null until WebSearch:ApiKey is set
+        var search = WebSearch.Create(); 
         if (search is not null) tools.Add(search);
 
         return tools;
     }
 
-    /// <summary>Best-effort pull of the harness's live plan state into the
-    /// process panel; repaints only when something actually changed.</summary>
     private async Task RefreshAgentPlanAsync(AgentSession session)
     {
         try
@@ -451,7 +443,6 @@
         }
         catch (Exception ex)
         {
-            // Panel state is decoration — never fail a reply over it.
             Logger.LogDebug(ex, "Could not refresh the agent plan panel.");
         }
     }
@@ -498,9 +489,9 @@
             if (!string.IsNullOrWhiteSpace(candidate) && candidate.Length <= 60)
                 generated = candidate;
         }
-        catch
+        catch (Exception ex)
         {
-            // Title generation is cosmetic; fall back to the question text.
+            Logger.LogWarning(ex, "Title generation failed — using fallback title '{Title}'.", generated);
         }
 
         title = generated;
@@ -531,7 +522,7 @@
         title = summary?.Title;
         status = null;
         processSteps.Clear();
-        sidebarOpen = false; // picking a conversation closes the mobile drawer
+        sidebarOpen = false; 
         await sidebar!.ReloadAsync();
         await chatInput!.FocusAsync();
     }
@@ -551,6 +542,7 @@
         conversationId = null;
         pinnedModel = null;
         mode = ChatMode.Ask;
+        crew = CrewState.FromConfig(Config);
         title = null;
         attachedFileName = null;
         status = null;

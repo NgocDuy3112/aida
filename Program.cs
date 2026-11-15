@@ -17,15 +17,11 @@ using OpenAI;
 using StackExchange.Redis;
 using System.ClientModel;
 using Microsoft.AspNetCore.DataProtection;
+using OpenTelemetry.Trace;
 
 Env.Load();
 
-// QuestPDF refuses to generate until a license is set; Community is free for
-// this project's scale. Must happen before the first document is written.
 QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
-// Requested fonts (e.g. Courier New for code blocks) may be absent on slim
-// hosts/containers — render with the closest available font instead of
-// aborting document generation.
 QuestPDF.Settings.ThrowOnMissingFontFamilies = false;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -34,9 +30,6 @@ builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 builder.Services.AddAppIdentity(builder.Configuration, builder.Environment);
 builder.Services.AddScoped<IConversationStore, ConversationStore>();
 
-// --- Redis-backed infrastructure -----------------------------------------
-// Redis:Enabled is true in docker-compose and false locally, so `dotnet run`
-// keeps working without a Redis server (memory fallbacks below).
 var redisEnabled = builder.Configuration.GetValue<bool>("Redis:Enabled");
 if (redisEnabled)
 {
@@ -45,8 +38,6 @@ if (redisEnabled)
     var redis = ConnectionMultiplexer.Connect(redisConnection);
     builder.Services.AddSingleton<IConnectionMultiplexer>(redis);
 
-    // Cookie encryption keys live in Redis — restarts/redeploys no longer
-    // log everyone out (previously keys died with the container filesystem).
     builder.Services.AddDataProtection()
         .SetApplicationName("aida")
         .PersistKeysToStackExchangeRedis(redis, "aida:data-protection");
@@ -68,12 +59,12 @@ builder.Services.AddSingleton<IChatRateLimiter>(sp => new ChatRateLimiter(
     sp.GetRequiredService<IConfiguration>(),
     sp.GetRequiredService<ILogger<ChatRateLimiter>>()));
 
-// --- usage / cost tracking (admin portal) --------------------------------
-builder.Services.AddSingleton(new PricingTable(builder.Configuration));
+builder.Services.AddSingleton<PricingTable>();
+builder.Services.AddHttpClient(OpenRouterPricingService.HttpClientName);
+builder.Services.AddHostedService<OpenRouterPricingService>();
 builder.Services.AddScoped<IUsageTracker, UsageTracker>();
 builder.Services.AddScoped<IUsageReport, UsageReport>();
 
-// chat stack
 var or = builder.Configuration.GetSection("OpenRouter");
 var options = new OpenAIClientOptions { 
     Endpoint = new Uri(or["BaseUrl"] ?? "https://openrouter.ai/api/v1") 
@@ -89,26 +80,36 @@ var embeddings = openAIClient.GetEmbeddingClient(or["EmbeddingModel"]!).AsIEmbed
 builder.Services.AddHttpClient<SystemOneRouter>();
 builder.Services.AddHttpClient<WebSearchTool>();
 builder.Services.AddScoped<ParallelResearchTool>();
+builder.Services.AddScoped<CrewWriterTool>();
 builder.Services.AddSingleton<SemanticSearch>();
 builder.Services.AddScoped<DocumentIngestor>();
 builder.Services.AddScoped<DocumentService>();
+builder.Services.AddHttpClient(GoogleWorkspaceService.HttpClientName);
+builder.Services.AddScoped<GoogleWorkspaceService>();
 builder.Services.AddChatClient(chatClient).UseLogging();
 builder.Services.AddEmbeddingGenerator(embeddings);
 
-// Behind a proxy/container the real scheme arrives as X-Forwarded-Proto —
-// without this, Google OAuth callbacks and Secure cookies misbehave in prod.
+var otelEndpoint = builder.Configuration["OpenTelemetry:Endpoint"];
+if (!string.IsNullOrWhiteSpace(otelEndpoint))
+{
+    builder.Services.AddOpenTelemetry()
+        .WithTracing(t => t
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
+            .AddEntityFrameworkCoreInstrumentation()
+            .AddSource("Aida.Llm")
+            .AddOtlpExporter(e => e.Endpoint = new Uri(otelEndpoint)));
+}
+
 builder.Services.Configure<ForwardedHeadersOptions>(o =>
 {
     o.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-    // One known proxy sits in front (compose/host gateway) on a private
-    // network, so the dynamic client-address lists don't apply here.
     o.KnownIPNetworks.Clear();
     o.KnownProxies.Clear();
 });
 
 var app = builder.Build();
 
-// Must run first so everything downstream sees the corrected scheme/host.
 app.UseForwardedHeaders();
 
 if (!app.Environment.IsDevelopment())
