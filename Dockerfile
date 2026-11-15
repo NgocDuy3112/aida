@@ -16,9 +16,6 @@ ENV ASPNETCORE_URLS=http://+:8080 \
 
 COPY --from=build /out .
 
-# Npgsql's native GSSAPI support dlopens libgssapi_krb5.so.2, which the slim
-# aspnet image doesn't ship — without it the first DB connection logs
-# "Cannot load library libgssapi_krb5.so.2". Harmless to add (~200 KB).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libgssapi-krb5-2 \
     && rm -rf /var/lib/apt/lists/*

@@ -20,7 +20,6 @@ services:
       Redis__Enabled: "true"
       Redis__ConnectionString: redis:6379
       ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
-      # OpenTelemetry → Jaeger (in-memory spans; UI on localhost:16686)
       OpenTelemetry__Endpoint: http://jaeger:4318/v1/traces
     ports:
       - "8080:8080"
@@ -62,14 +61,9 @@ services:
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
     ports:
-      - "127.0.0.1:16686:16686"   # UI  → http://localhost:16686
-      - "127.0.0.1:4318:4318"     # OTLP/HTTP for local `dotnet run`
+      - "127.0.0.1:16686:16686"
+      - "127.0.0.1:4318:4318"
 
 volumes:
   aida-postgresql:
     external: true
-
-# NOTE: the redis service block used to be nested UNDER `volumes:` (YAML
-# indentation) — it was parsed as a volume definition, so compose could never
-# start. It is a proper service again, below the services above.
-
