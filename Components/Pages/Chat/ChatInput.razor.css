@@ -323,3 +323,12 @@ textarea {
         overflow-y: auto;
     }
 }
+
+.send-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.send-button:disabled:hover {
+    background: var(--accent);
+}

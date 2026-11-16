@@ -42,7 +42,7 @@
                 {
                     <div class="model-menu-backdrop" @onclick="CloseAddMenu"></div>
                     <div class="add-menu" role="menu" aria-label="Thêm">
-                        <label class="add-item" role="menuitem" @onclick="CloseAddMenu">
+                        <label class="add-item" role="menuitem">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
                                 <path stroke-linecap="round" stroke-linejoin="round"
                                       d="m18.375 12.739-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l10.94-10.94A3 3 0 1 1 19.5 7.372L8.552 18.32m.009-.01-.01.01m5.699-9.941-7.81 7.81a1.5 1.5 0 0 0 2.112 2.13" />
@@ -51,7 +51,7 @@
                             <InputFile OnChange="OnFileChange" accept=".pdf,.md,.docx,.xlsx" aria-label="Đính kèm tài liệu" />
                         </label>
 
-                        <label class="add-item" role="menuitem" @onclick="CloseAddMenu">
+                        <label class="add-item" role="menuitem">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
                                 <path stroke-linecap="round" stroke-linejoin="round"
                                       d="M4 7h3l2-2h6l2 2h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1Z" />
@@ -62,7 +62,7 @@
                                        aria-label="Chụp ảnh" />
                         </label>
 
-                        <label class="add-item" role="menuitem" @onclick="CloseAddMenu">
+                        <label class="add-item" role="menuitem">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
                                 <rect x="3" y="4" width="18" height="16" rx="2" />
                                 <circle cx="8.5" cy="9.5" r="1.5" />
@@ -72,23 +72,9 @@
                             <span>Thêm ảnh</span>
                             <InputFile OnChange="OnImagesSelected" accept="image/*" multiple aria-label="Thêm ảnh" />
                         </label>
-
-                        <button type="button" class="add-item @VoiceItemClass"
-                                role="menuitem"
-                                disabled="@(!voiceSupported)"
-                                @onclick="ToggleVoice">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-                                <path stroke-linecap="round" stroke-linejoin="round"
-                                      d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z" />
-                                <path stroke-linecap="round" d="M5 11v1a7 7 0 0 0 14 0v-1M12 19v3" />
-                            </svg>
-                            <span>@VoiceLabel</span>
-                        </button>
                     </div>
                 }
             </div>
-
-            <GoogleConnectors Connected="@GoogleConnected" />
 
             <div class="model-picker">
                 <button type="button" class="model-trigger @(menuOpen ? "is-open" : null)"
@@ -137,7 +123,8 @@
                 }
             </div>
 
-            <button type="submit" title="Gửi" class="send-button" aria-label="Gửi tin nhắn">
+            <button type="submit" title="Gửi" class="send-button" aria-label="Gửi tin nhắn"
+                    disabled="@sending">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round"
                           d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" />
@@ -160,9 +147,7 @@
 
     private readonly List<(string Name, string DataUri)> pendingImages = [];
     private IJSObjectReference? module;
-    private DotNetObjectReference<ChatInput>? selfReference;
-    private bool voiceSupported;
-    private bool listening;
+    private bool sending;
 
     private const int MaxImages = 10;
     private const long MaxImageBytes = 5 * 1024 * 1024;
@@ -175,9 +160,6 @@
 
     [Parameter] public EventCallback<string?> PinnedModelChanged { get; set; }
 
-    [Parameter]
-    public bool GoogleConnected { get; set; }
-
     private bool addOpen;
 
     private string? AddTriggerClass
@@ -186,8 +168,6 @@
         {
             if (addOpen)
                 return "is-open";
-            if (listening)
-                return "is-listening";
             return null;
         }
     }
@@ -199,28 +179,6 @@
             if (addOpen)
                 return "true";
             return "false";
-        }
-    }
-
-    private string? VoiceItemClass
-    {
-        get
-        {
-            if (listening)
-                return "is-active";
-            return null;
-        }
-    }
-
-    private string VoiceLabel
-    {
-        get
-        {
-            if (listening)
-                return "Dừng ghi âm";
-            if (!voiceSupported)
-                return "Nhập giọng nói không khả dụng";
-            return "Nhập giọng nói (tiếng Việt)";
         }
     }
 
@@ -327,11 +285,10 @@
 
     private async Task SendMessageAsync()
     {
+        if (sending) return;
+
         var text = messageText;
         if (string.IsNullOrWhiteSpace(text) && pendingImages.Count == 0) return;
-
-        if (listening && module is not null)
-            await module.InvokeVoidAsync("stopVoice");
 
         var contents = new List<AIContent> { new TextContent(text ?? string.Empty) };
         foreach (var image in pendingImages)
@@ -342,14 +299,27 @@
 
         pendingImages.Clear();
         messageText = null;
-        await OnSend.InvokeAsync(new ChatMessage(ChatRole.User, contents));
+
+        sending = true;
+        try
+        {
+            await OnSend.InvokeAsync(new ChatMessage(ChatRole.User, contents));
+        }
+        finally
+        {
+            sending = false;
+        }
     }
 
     private async Task OnFileChange(InputFileChangeEventArgs args)
-        => await OnFileSelected.InvokeAsync(args.File);
+    {
+        CloseAddMenu();
+        await OnFileSelected.InvokeAsync(args.File);
+    }
 
     private async Task OnImagesSelected(InputFileChangeEventArgs e)
     {
+        CloseAddMenu();
         var files = e.GetMultipleFiles();
         var capacity = MaxImages - pendingImages.Count;
 
@@ -422,57 +392,6 @@
             pendingImages.RemoveAt(index);
     }
 
-    private async Task ToggleVoice()
-    {
-        if (module is null || selfReference is null) return;
-
-        if (listening)
-        {
-            await module.InvokeVoidAsync("stopVoice");
-            return;
-        }
-
-        var started = await module.InvokeAsync<bool>(
-            "startVoice", selfReference, "vi-VN", messageText ?? string.Empty);
-
-        if (started)
-        {
-            listening = true;
-        }
-        else
-        {
-            SetStatus("Trình duyệt này không hỗ trợ nhập giọng nói — thử Chrome hoặc Edge.");
-        }
-    }
-
-    [JSInvokable]
-    public void OnVoiceTranscript(string text)
-    {
-        messageText = text;
-        StateHasChanged();
-    }
-
-    [JSInvokable]
-    public void OnVoiceEnd()
-    {
-        listening = false;
-        StateHasChanged();
-    }
-
-    [JSInvokable]
-    public void OnVoiceError(string error)
-    {
-        listening = false;
-        SetStatus(error switch
-        {
-            "not-allowed" or "service-not-allowed" => "Microphone permission denied.",
-            "no-speech" => "Didn't hear anything — try again.",
-            "audio-capture" => "No microphone found.",
-            _ => "Voice input stopped unexpectedly.",
-        });
-        StateHasChanged();
-    }
-
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
@@ -482,10 +401,6 @@
                 module = await JS.InvokeAsync<IJSObjectReference>(
                     "import", "./Components/Pages/Chat/ChatInput.razor.js");
                 await module.InvokeVoidAsync("init", textArea);
-
-                selfReference = DotNetObjectReference.Create(this);
-                voiceSupported = await module.InvokeAsync<bool>("supportsVoice");
-                StateHasChanged();
             }
             catch (JSDisconnectedException)
             {
@@ -507,19 +422,16 @@
         {
             try
             {
-                if (listening) await module.InvokeVoidAsync("stopVoice");
                 await module.DisposeAsync();
             }
             catch (JSDisconnectedException)
             {
-                Logger.LogDebug("Circuit already disconnected while stopping voice input during dispose.");
+                Logger.LogDebug("Circuit already disconnected while disposing chat input module.");
             }
             catch (ObjectDisposedException)
             {
                 Logger.LogDebug("JS module already disposed — skipped cleanup.");
             }
         }
-
-        selfReference?.Dispose();
     }
 }
