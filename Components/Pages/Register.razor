@@ -1,0 +1,55 @@
+@page "/register"
+@attribute [AllowAnonymous]
+
+<PageTitle>Create account</PageTitle>
+
+<main class="login-shell">
+    <div class="login-card">
+        <div class="login-brand">
+            <div class="login-mark" aria-hidden="true">C</div>
+            <h1>Create your account</h1>
+            <p class="login-sub">Sign up with your email and password.</p>
+        </div>
+
+        @if (!string.IsNullOrEmpty(Error))
+        {
+            <p class="login-error">@ErrorMessage</p>
+        }
+
+        <form method="post" action="/account/password-register">
+            <AntiforgeryToken />
+            <div class="login-fields">
+                <input class="login-field" type="email" name="email"
+                       placeholder="Email" required autocomplete="email" />
+                <input class="login-field" type="password" name="password"
+                       placeholder="Password" required autocomplete="new-password" />
+                <input class="login-field" type="password" name="confirm"
+                       placeholder="Confirm password" required autocomplete="new-password" />
+            </div>
+            <button type="submit" class="login-submit">Create account</button>
+        </form>
+
+        <p class="login-switch">Already have an account? <a href="/login">Sign in</a></p>
+    </div>
+</main>
+
+@code {
+    [SupplyParameterFromQuery]
+    public string? Error { get; set; }
+
+    private string ErrorMessage
+    {
+        get
+        {
+            if (Error == "mismatch")
+                return "Passwords don't match.";
+            if (Error == "taken")
+                return "An account with this email already exists.";
+            if (Error == "weak")
+                return "Password must be at least6 characters and include an uppercase letter, a lowercase letter, a digit and a symbol.";
+            if (Error == "invalid")
+                return "Enter a valid email and password.";
+            return "Couldn't create your account — please try again.";
+        }
+    }
+}
