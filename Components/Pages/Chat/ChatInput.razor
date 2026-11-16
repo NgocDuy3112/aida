@@ -90,15 +90,6 @@
 
             <GoogleConnectors />
 
-            <div class="mode-switch" role="group" aria-label="Chế độ chat">
-                <button type="button" class="mode-option @(Mode == ChatMode.Ask ? "is-active" : null)"
-                        aria-pressed="@(Mode == ChatMode.Ask)"
-                        @onclick="() => SetMode(ChatMode.Ask)">Hỏi</button>
-                <button type="button" class="mode-option @(Mode == ChatMode.Agent ? "is-active" : null)"
-                        aria-pressed="@(Mode == ChatMode.Agent)"
-                        @onclick="() => SetMode(ChatMode.Agent)">Agent</button>
-            </div>
-
             <div class="model-picker">
                 <button type="button" class="model-trigger @(menuOpen ? "is-open" : null)"
                         aria-haspopup="listbox"
@@ -146,8 +137,6 @@
                 }
             </div>
 
-            @if (Mode == ChatMode.Agent)
-            {
                 <div class="crew-picker">
                     <button type="button" class="tool-btn @(crewOpen ? "is-open" : null)"
                             title="Crew: model & thinking theo vai trò (phiên này)"
@@ -159,16 +148,8 @@
                     {
                         <div class="model-menu-backdrop" @onclick="() => crewOpen = false"></div>
                         <div class="crew-menu" role="dialog" aria-label="Crew settings">
-                            <div class="crew-row">
+                            <div class="crew-row crew-row-agent">
                                 <span class="crew-role">Director</span>
-                                <select class="crew-model" aria-label="Director model"
-                                        value="@Crew.DirectorModel"
-                                        @onchange="e => SetCrew(c => c with { DirectorModel = e.Value as string ?? c.DirectorModel })">
-                                    @foreach (var m in CrewModels(Crew.DirectorModel))
-                                    {
-                                        <option value="@m">@m</option>
-                                    }
-                                </select>
                                 <select class="crew-think" aria-label="Director thinking"
                                         value="@Crew.DirectorThinking"
                                         @onchange="e => SetCrew(c => c with { DirectorThinking = e.Value as string ?? c.DirectorThinking })">
@@ -216,12 +197,10 @@
                                     }
                                 </select>
                             </div>
-                            <p class="crew-note">Chỉ trong phiên — reset khi Chat mới. Model đã ghim
-                                sẽ ghi đè Director. Thinking "off" = mặc định của provider.</p>
+                            <p class="crew-note">Chỉ trong phiên — reset khi Chat mới. Thinking "off" = mặc định của provider.</p>
                         </div>
                     }
                 </div>
-            }
 
             <button type="submit" title="Gửi" class="send-button" aria-label="Gửi tin nhắn">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
@@ -260,10 +239,6 @@
     [Parameter] public string? PinnedModel { get; set; }
 
     [Parameter] public EventCallback<string?> PinnedModelChanged { get; set; }
-
-    [Parameter] public ChatMode Mode { get; set; } = ChatMode.Ask;
-
-    [Parameter] public EventCallback<ChatMode> ModeChanged { get; set; }
 
     [Parameter] public CrewState Crew { get; set; } = new("", "", "", "off", "off", "off");
 
@@ -454,12 +429,6 @@
 
     private async Task OnFileChange(InputFileChangeEventArgs args)
         => await OnFileSelected.InvokeAsync(args.File);
-
-    private async Task SetMode(ChatMode value)
-    {
-        if (value != Mode)
-            await ModeChanged.InvokeAsync(value);
-    }
 
     private async Task OnImagesSelected(InputFileChangeEventArgs e)
     {

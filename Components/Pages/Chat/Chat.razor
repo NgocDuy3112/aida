@@ -50,7 +50,6 @@
             <NoMessagesContent>
                 <div class="empty-state">
                     <h2>AIDA Agent</h2>
-                    <p>AIDA tự nghiên cứu, gọi công cụ và lên kế hoạch trước khi trả lời — không chỉ tra cứu tài liệu.</p>
                 </div>
             </NoMessagesContent>
         </ChatMessageList>
@@ -81,7 +80,6 @@
             OnFileSelected="@UploadAsync"
             AttachedFile="@attachedFileName"
             @bind-PinnedModel="pinnedModel"
-            @bind-Mode="mode"
             @bind-Crew="crew"
             StatusChanged="@((string? s) => status = s)"
             @ref="@chatInput"
@@ -106,7 +104,6 @@
     private string? pinnedModel;
     private int streamVersion;
     private bool sidebarOpen;
-    private ChatMode mode = ChatMode.Ask;
     private CrewState crew = null!;
 
     private readonly List<string> processSteps = [];
@@ -143,7 +140,6 @@
         var planPoll = Stopwatch.StartNew();
         var usedModel = "unknown";
         var toolCalls = 0;
-        UsageContent? usageContent = null;
         var llmClock = Stopwatch.StartNew();
         try
         {
@@ -162,11 +158,8 @@
             await chatInput!.FocusAsync();
 
 
-            var directorChoice = pinnedModel ?? (mode == ChatMode.Agent ? crew.DirectorModel : null);
-            var forcedModel = ChatModePolicy.ForcedModel(
-                mode, directorChoice, Config["OpenRouter:StrongModel"]);
-            var modelTask = forcedModel is not null
-                ? Task.FromResult(forcedModel)
+            var modelTask = pinnedModel is not null
+                ? Task.FromResult(pinnedModel)
                 : Router.PickChatModelAsync(question);
             var hitsTask = attachedFileName is null
                 ? Task.FromResult<IReadOnlyList<IngestedChunk>>([])
@@ -176,10 +169,13 @@
 
             var model = await modelTask;
             usedModel = model;
+            var modelSource = "router";
+            if (pinnedModel is not null)
+                modelSource = "pinned";
             Logger.LogInformation(
                 "Answering with {Model} ({Source})",
                 model,
-                pinnedModel is not null ? "pinned" : forcedModel is not null ? "mode" : "router");
+                modelSource);
             var hits = await hitsTask;
             if (hits.Count > 0)
                 AddStep($"Đã tìm {hits.Count} đoạn");
@@ -191,48 +187,20 @@
             currentResponseCancellation = new();
             await InvokeAsync(StateHasChanged);
 
-            var outgoing = messages.ToList();
-            var outgoingContents = new List<AIContent> { new TextContent(prompt) };
-            outgoingContents.AddRange(outgoing[^1].Contents.OfType<DataContent>());
-            outgoing[^1] = new ChatMessage(ChatRole.User, outgoingContents);
+            var (harness, session, sessionFresh) = await GetAgentRunAsync(conversationId!.Value, model);
 
-            if (mode == ChatMode.Agent)
+            var currentContents = new List<AIContent> { new TextContent(prompt) };
+            currentContents.AddRange(messages[^1].Contents.OfType<DataContent>());
+            var currentMessage = new ChatMessage(ChatRole.User, currentContents);
+            var agentInput = BuildAgentInput(sessionFresh, currentMessage);
+
+            await foreach (var update in harness.RunStreamingAsync(
+                agentInput, session, cancellationToken: currentResponseCancellation.Token))
             {
-                var (harness, session) = await GetAgentRunAsync(conversationId!.Value, model);
-                await foreach (var update in harness.RunStreamingAsync(
-                    prompt, session, cancellationToken: currentResponseCancellation.Token))
-                {
-                    await ProcessUpdateAsync(update.Text, session, update.Contents);
-                }
-            }
-            else
-            {
-                var chatClient = CreateChatClient(model);
-                await foreach (var update in chatClient.GetStreamingResponseAsync(
-                    outgoing, new ChatOptions(), currentResponseCancellation.Token))
-                {
-                    await ProcessUpdateAsync(update.Text, null, update.Contents);
-                }
+                await ProcessUpdateAsync(update.Text, session, update.Contents);
             }
 
             llmClock.Stop();
-            if (mode != ChatMode.Agent)
-            {
-                _ = UsageTracker.RecordAsync(new UsageEvent
-                {
-                    UserId = userId,
-                    Model = usedModel,
-                    Mode = mode.ToString().ToLowerInvariant(),
-                    PromptTokens = usageContent?.Details.InputTokenCount,
-                    CompletionTokens = usageContent?.Details.OutputTokenCount,
-                    CostUsd = Pricing.CostUsd(
-                        usedModel,
-                        usageContent?.Details.InputTokenCount,
-                        usageContent?.Details.OutputTokenCount),
-                    DurationMs = llmClock.ElapsedMilliseconds,
-                    ToolCalls = toolCalls,
-                });
-            }
 
             messages.Add(myResponse);
             currentResponseMessage = null;
@@ -258,7 +226,7 @@
             {
                 UserId = userId,
                 Model = usedModel,
-                Mode = mode.ToString().ToLowerInvariant(),
+                Mode = "agent",
                 DurationMs = llmClock.ElapsedMilliseconds,
                 ToolCalls = toolCalls,
                 Error = "cancelled",
@@ -279,7 +247,7 @@
             {
                 UserId = userId,
                 Model = usedModel,
-                Mode = mode.ToString().ToLowerInvariant(),
+                Mode = "agent",
                 DurationMs = llmClock.ElapsedMilliseconds,
                 ToolCalls = toolCalls,
                 Error = ex.Message,
@@ -296,9 +264,6 @@
 
             foreach (var item in contents)
             {
-                if (item is UsageContent reportedUsage)
-                    usageContent = reportedUsage;
-
                 if (item is FunctionCallContent call)
                 {
                     toolCalls++;
@@ -367,12 +332,12 @@
         return client;
     }
 
-    private async Task<(HarnessAgent Agent, AgentSession Session)> GetAgentRunAsync(
+    private async Task<(HarnessAgent Agent, AgentSession Session, bool Fresh)> GetAgentRunAsync(
         Guid conversationId, string model)
     {
         if (agentRuns.TryGetValue(conversationId, out var existing)
             && existing.Model == model && existing.Crew == crew)
-            return (existing.Agent, existing.Session);
+            return (existing.Agent, existing.Session, false);
 
         var reporting = new UsageReportingChatClient(
             OpenAi.GetChatClient(model).AsIChatClient(),
@@ -395,7 +360,35 @@
 
         var session = await agent.CreateSessionAsync();
         agentRuns[conversationId] = new AgentRun(agent, session, model, crew);
-        return (agent, session);
+        return (agent, session, true);
+    }
+
+    private List<ChatMessage> BuildAgentInput(bool sessionFresh, ChatMessage currentMessage)
+    {
+        if (!sessionFresh)
+        {
+            return [currentMessage];
+        }
+
+        var history = messages
+            .Take(messages.Count - 1)
+            .Where(m => m.Role != ChatRole.System)
+            .Where(m => !string.IsNullOrWhiteSpace(m.Text))
+            .TakeLast(8)
+            .Select(m => new ChatMessage(m.Role, TruncateForHistory(m.Text)))
+            .ToList();
+
+        history.Add(currentMessage);
+        return history;
+    }
+
+    private static string TruncateForHistory(string text)
+    {
+        if (text.Length <= 1500)
+        {
+            return text;
+        }
+        return text[..1500] + " …";
     }
 
     private List<AITool> BuildAgentTools(string model)
@@ -536,7 +529,6 @@
         messages.Add(new(ChatRole.System, systemPrompt));
         conversationId = null;
         pinnedModel = null;
-        mode = ChatMode.Ask;
         crew = CrewState.FromConfig(Config);
         title = null;
         attachedFileName = null;
