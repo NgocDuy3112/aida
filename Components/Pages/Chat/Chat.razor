@@ -470,7 +470,7 @@
 
         try
         {
-            var lightModel = Config["OpenRouter:LightModel"]!;
+            var lightModel = Config["Models:LightModel"]!;
             var client = CreateChatClient(lightModel);
             var response = await client.GetResponseAsync(
                 $"Give a 3-5 word title for a conversation that starts with: {question}");

@@ -248,8 +248,8 @@
 
     protected override void OnInitialized()
     {
-        var or = Config.GetSection("OpenRouter");
-        foreach (var model in or.GetSection("ChatModels").GetChildren()
+        var models = Config.GetSection("Models");
+        foreach (var model in models.GetSection("ChatModels").GetChildren()
                      .Select(c => c.Value)
                      .Where(v => !string.IsNullOrWhiteSpace(v))!)
         {
@@ -261,7 +261,7 @@
         {
             foreach (var key in new[] { "StrongModel", "ModerateModel", "LightModel" })
             {
-                var model = or[key];
+                var model = models[key];
                 if (!string.IsNullOrWhiteSpace(model) && !availableModels.Contains(model))
                     availableModels.Add(model);
             }

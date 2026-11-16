@@ -17,9 +17,9 @@ public class SystemOneRouterTests
             ["OpenRouter:ApiKey"] = "test-key",
             ["OpenRouter:SystemOneEndpoint"] = Endpoint,
             ["OpenRouter:SystemOneModel"] = "typesafe/jev-test",
-            ["OpenRouter:StrongModel"] = "openai/strong",
-            ["OpenRouter:ModerateModel"] = "openai/moderate",
-            ["OpenRouter:LightModel"] = "openai/light",
+            ["Models:StrongModel"] = "openai/strong",
+            ["Models:ModerateModel"] = "openai/moderate",
+            ["Models:LightModel"] = "openai/light",
         })
         .Build();
 

@@ -10,18 +10,15 @@ internal static class CrewOptions
 
     internal static string DirectorModel(IConfiguration config) =>
         NonEmpty(config[$"{Section}:DirectorModel"])
-        ?? NonEmpty(config["OpenRouter:StrongModel"])
-        ?? throw new InvalidOperationException("Missing OpenRouter:StrongModel");
+        ?? throw new InvalidOperationException($"Missing {Section}:DirectorModel");
 
     internal static string ResearcherModel(IConfiguration config) =>
         NonEmpty(config[$"{Section}:ResearcherModel"])
-        ?? NonEmpty(config["OpenRouter:ModerateModel"])
-        ?? throw new InvalidOperationException("Missing OpenRouter:ModerateModel");
+        ?? throw new InvalidOperationException($"Missing {Section}:ResearcherModel");
 
     internal static string WriterModel(IConfiguration config) =>
         NonEmpty(config[$"{Section}:WriterModel"])
-        ?? NonEmpty(config["OpenRouter:StrongModel"])
-        ?? throw new InvalidOperationException("Missing OpenRouter:StrongModel");
+        ?? throw new InvalidOperationException($"Missing {Section}:WriterModel");
 
     internal static string Thinking(IConfiguration config, string role)
     {

@@ -16,40 +16,40 @@ public class CrewOptionsTests
     private static readonly Dictionary<string, string?> Empty = new();
 
     [Fact]
-    public void Models_fall_back_to_configured_tiers()
-    {
-        var config = Config(new()
-        {
-            ["OpenRouter:StrongModel"] = "anthropic/claude-sonnet-5.5",
-            ["OpenRouter:ModerateModel"] = "google/gemini-3.1-flash-lite",
-        });
-
-        Assert.Equal("anthropic/claude-sonnet-5.5", CrewOptions.DirectorModel(config));   
-        Assert.Equal("google/gemini-3.1-flash-lite", CrewOptions.ResearcherModel(config)); 
-        Assert.Equal("anthropic/claude-sonnet-5.5", CrewOptions.WriterModel(config));      
-    }
-
-    [Fact]
-    public void Missing_tier_config_fails_fast_with_clear_message()
-    {
-        var ex = Assert.Throws<InvalidOperationException>(
-            () => CrewOptions.DirectorModel(Config(Empty)));
-
-        Assert.Contains("StrongModel", ex.Message);
-    }
-
-    [Fact]
-    public void Crew_section_overrides_tiers_and_empty_values_fall_through()
+    public void Crew_section_reads_all_role_models()
     {
         var config = Config(new()
         {
             ["Crew:ResearcherModel"] = "openai/gpt-5-nano",
-            ["Crew:DirectorModel"] = "   ",                       
-            ["OpenRouter:StrongModel"] = "custom/strong",
+            ["Crew:DirectorModel"] = "anthropic/claude-sonnet-5.5",
         });
 
+        Assert.Equal("anthropic/claude-sonnet-5.5", CrewOptions.DirectorModel(config));
         Assert.Equal("openai/gpt-5-nano", CrewOptions.ResearcherModel(config));
-        Assert.Equal("custom/strong", CrewOptions.DirectorModel(config));
+    }
+
+    [Fact]
+    public void Missing_crew_config_fails_fast_with_clear_message()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => CrewOptions.DirectorModel(Config(Empty)));
+
+        Assert.Contains("Crew:DirectorModel", ex.Message);
+    }
+
+    [Fact]
+    public void Blank_crew_value_fails_instead_of_falling_back()
+    {
+        var config = Config(new()
+        {
+            ["Crew:DirectorModel"] = "   ",
+            ["Models:StrongModel"] = "custom/strong",
+        });
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => CrewOptions.DirectorModel(config));
+
+        Assert.Contains("Crew:DirectorModel", ex.Message);
     }
 
     [Theory]

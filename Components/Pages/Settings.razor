@@ -191,7 +191,7 @@
     {
         googleConfigured = IdentityExtensions.IsGoogleConfigured(Config);
 
-        var models = Config.GetSection("OpenRouter");
+        var models = Config.GetSection("Models");
         foreach (var model in models.GetSection("ChatModels").GetChildren()
                      .Select(c => c.Value)
                      .Where(v => !string.IsNullOrWhiteSpace(v))!)
