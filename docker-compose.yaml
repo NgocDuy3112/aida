@@ -10,8 +10,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      jaeger:
-        condition: service_started
     env_file:
       - .env
     environment:
@@ -20,9 +18,11 @@ services:
       Redis__Enabled: "true"
       Redis__ConnectionString: redis:6379
       ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
-      OpenTelemetry__Endpoint: http://jaeger:4318/v1/traces
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"          
+    networks:
+      default: {}
+      edge-network: {}                       
 
   postgres:
     image: docker.io/pgvector/pgvector:pg17
@@ -31,9 +31,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    ports:
-      - "5432:5432"
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}       
     volumes:
       - aida-postgresql:/var/lib/postgresql/data
     healthcheck:
@@ -54,15 +52,10 @@ services:
       timeout: 3s
       retries: 10
 
-  jaeger:
-    image: docker.io/jaegertracing/jaeger:2.23.0
-    container_name: aida-jaeger
-    restart: unless-stopped
-    environment:
-      COLLECTOR_OTLP_ENABLED: "true"
-    ports:
-      - "127.0.0.1:16686:16686"
-      - "127.0.0.1:4318:4318"
+networks:
+  default: {}
+  edge-network:
+    external: true
 
 volumes:
   aida-postgresql:

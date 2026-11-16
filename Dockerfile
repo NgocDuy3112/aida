@@ -16,10 +16,6 @@ ENV ASPNETCORE_URLS=http://+:8080 \
 
 COPY --from=build /out .
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends libgssapi-krb5-2 \
-    && rm -rf /var/lib/apt/lists/*
-
 RUN mkdir -p /app/App_Data/documents && chown -R $APP_UID:$APP_UID /app/App_Data
 
 USER $APP_UID
