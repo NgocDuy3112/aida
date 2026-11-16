@@ -141,3 +141,60 @@ h1 {
     border: 1px solid var(--danger-border);
     border-radius: var(--radius-sm);
 }
+
+.login-fields {
+    display: grid;
+    gap: var(--space-2);
+}
+
+.login-field {
+    width: 100%;
+    padding: 10px 12px;
+    font: inherit;
+    font-size: .9375rem;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+
+.login-field:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.login-field::placeholder { color: var(--text-muted); }
+
+.login-submit {
+    width: 100%;
+    min-height: 44px;
+    margin-top: var(--space-3);
+    font: inherit;
+    font-size: .9375rem;
+    font-weight: 600;
+    color: var(--accent-contrast);
+    background: var(--accent);
+    border: 0;
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: background var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+
+.login-submit:hover { background: var(--accent-hover); }
+.login-submit:active { transform: translateY(1px); }
+
+.login-switch {
+    margin: var(--space-4) 0 0;
+    font-size: .8125rem;
+    color: var(--text-muted);
+}
+
+.login-switch a {
+    color: var(--accent);
+    font-weight: 500;
+    text-decoration: none;
+}
+
+.login-switch a:hover { text-decoration: underline; }

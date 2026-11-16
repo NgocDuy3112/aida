@@ -110,6 +110,81 @@ public static class AuthEndpointExtensions
             return Results.Redirect("/");
         }).RequireAuthorization();
 
+        app.MapPost("/account/password-signin", async (
+            HttpContext context, SignInManager<AppUser> signInManager,
+            UserManager<AppUser> userManager) =>
+        {
+            var form = await context.Request.ReadFormAsync();
+            var email = form["email"].ToString().Trim();
+            var password = form["password"].ToString();
+            var returnUrl = form["returnUrl"].ToString();
+
+            var result = await signInManager.PasswordSignInAsync(
+                email, password, isPersistent: true, lockoutOnFailure: true);
+
+            if (result.Succeeded)
+                return Results.Redirect(SafeReturnUrl(returnUrl));
+
+            if (result.IsLockedOut)
+                return Results.Redirect("/login?error=lockedout");
+
+            var existing = await userManager.FindByEmailAsync(email);
+            if (existing is not null)
+            {
+                if (string.IsNullOrEmpty(existing.PasswordHash))
+                    return Results.Redirect("/login?error=googleonly");
+            }
+
+            return Results.Redirect("/login?error=invalidcredentials");
+        }).AllowAnonymous();
+
+        app.MapPost("/account/password-register", async (
+            HttpContext context, UserManager<AppUser> userManager,
+            SignInManager<AppUser> signInManager) =>
+        {
+            var form = await context.Request.ReadFormAsync();
+            var email = form["email"].ToString().Trim();
+            var password = form["password"].ToString();
+            var confirm = form["confirm"].ToString();
+
+            if (string.IsNullOrEmpty(email))
+                return Results.Redirect("/register?error=invalid");
+
+            if (string.IsNullOrEmpty(password))
+                return Results.Redirect("/register?error=invalid");
+
+            if (password != confirm)
+                return Results.Redirect("/register?error=mismatch");
+
+            var displayName = email;
+            var at = email.IndexOf('@');
+            if (at > 0)
+                displayName = email[..at];
+
+            var user = new AppUser
+            {
+                UserName = email,
+                Email = email,
+                EmailConfirmed = true,
+                DisplayName = displayName,
+            };
+
+            var created = await userManager.CreateAsync(user, password);
+            if (!created.Succeeded)
+            {
+                var takenName = created.Errors.Any(e => e.Code == "DuplicateUserName");
+                var takenEmail = created.Errors.Any(e => e.Code == "DuplicateEmail");
+                if (takenName)
+                    return Results.Redirect("/register?error=taken");
+                if (takenEmail)
+                    return Results.Redirect("/register?error=taken");
+                return Results.Redirect("/register?error=weak");
+            }
+
+            await signInManager.SignInAsync(user, isPersistent: true);
+            return Results.Redirect("/");
+        }).AllowAnonymous();
+
         if (env.IsDevelopment())
         {
             app.MapGet("/dev-login", async (
