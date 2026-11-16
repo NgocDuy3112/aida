@@ -63,8 +63,3 @@ volumes:
   aida-postgresql:
     external: true
   aida-redis:
-
-# NOTE: the redis service block used to be nested UNDER `volumes:` (YAML
-# indentation) — it was parsed as a volume definition, so compose could never
-# start. It is a proper service again, below the services above.
-
