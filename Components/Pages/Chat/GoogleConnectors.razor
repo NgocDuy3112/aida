@@ -1,7 +1,4 @@
-@using Microsoft.AspNetCore.Identity
 @using aida.Extensions
-@inject AuthenticationStateProvider AuthState
-@inject UserManager<AppUser> UserManager
 @inject IConfiguration Config
 
 <div class="connectors">
@@ -15,7 +12,7 @@
             <path stroke-linecap="round" stroke-linejoin="round"
                   d="M12 22v-5M9 8V2M15 8V2M18 8v3a6 6 0 0 1-12 0V8Z" />
         </svg>
-        @if (!connected)
+        @if (!Connected)
         {
             <span class="connectors-badge" aria-hidden="true"></span>
         }
@@ -26,15 +23,17 @@
         <div class="connectors-backdrop" @onclick="Close"></div>
         <div class="connectors-menu" role="dialog" aria-label="Kết nối Google">
             <p class="connectors-heading">Kết nối Google</p>
-            <GoogleConnectorRows Connected="@connected" GoogleConfigured="@googleConfigured" />
+            <GoogleConnectorRows Connected="@Connected" GoogleConfigured="@googleConfigured" />
         </div>
     }
 </div>
 
 @code {
     private bool open;
-    private bool connected;
     private bool googleConfigured;
+
+    [Parameter]
+    public bool Connected { get; set; }
 
     private string? TriggerClass
     {
@@ -60,19 +59,9 @@
         }
     }
 
-    protected override async Task OnInitializedAsync()
+    protected override void OnInitialized()
     {
         googleConfigured = IdentityExtensions.IsGoogleConfigured(Config);
-
-        var state = await AuthState.GetAuthenticationStateAsync();
-        var user = await UserManager.GetUserAsync(state.User);
-        if (user is null)
-        {
-            connected = false;
-            return;
-        }
-
-        connected = !string.IsNullOrWhiteSpace(user.GoogleRefreshToken);
     }
 
     private void Toggle()

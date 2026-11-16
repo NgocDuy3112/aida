@@ -80,6 +80,7 @@
             OnFileSelected="@UploadAsync"
             AttachedFile="@attachedFileName"
             @bind-PinnedModel="pinnedModel"
+            GoogleConnected="@googleConnected"
             StatusChanged="@((string? s) => status = s)"
             @ref="@chatInput"
             />
@@ -100,6 +101,7 @@
     private string? attachedFileName;
     private string? status;
     private string systemPrompt = string.Empty;
+    private bool googleConnected;
     private string? pinnedModel;
     private int streamVersion;
     private bool sidebarOpen;
@@ -122,6 +124,9 @@
         userId = state.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
         var appUser = await UserManager.FindByIdAsync(userId);
         crew = AgentSettings.Load(appUser, Config);
+        googleConnected = false;
+        if (appUser is not null)
+            googleConnected = !string.IsNullOrWhiteSpace(appUser.GoogleRefreshToken);
         messages.Add(new(ChatRole.System, systemPrompt));
     }
 
