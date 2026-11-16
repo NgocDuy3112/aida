@@ -145,6 +145,22 @@
     white-space: nowrap;
 }
 
+.sidebar-settings {
+    font: inherit;
+    font-size: .75rem;
+    color: var(--text-muted);
+    text-decoration: none;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 4px 8px;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+
+    .sidebar-settings:hover { color: var(--text); border-color: var(--border-strong); }
+
 .sidebar-signout {
     font: inherit;
     font-size: .75rem;

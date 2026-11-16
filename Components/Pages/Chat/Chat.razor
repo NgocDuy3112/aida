@@ -80,7 +80,6 @@
             OnFileSelected="@UploadAsync"
             AttachedFile="@attachedFileName"
             @bind-PinnedModel="pinnedModel"
-            @bind-Crew="crew"
             StatusChanged="@((string? s) => status = s)"
             @ref="@chatInput"
             />
@@ -116,12 +115,13 @@
 
     protected override async Task OnInitializedAsync()
     {
-        crew = CrewState.FromConfig(Config);
         systemPrompt = File.ReadAllText(
             Path.Combine(Env.ContentRootPath, "prompts", "SYSTEM.md"));
 
         var state = await AuthState.GetAuthenticationStateAsync();
         userId = state.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
+        var appUser = await UserManager.FindByIdAsync(userId);
+        crew = AgentSettings.Load(appUser, Config);
         messages.Add(new(ChatRole.System, systemPrompt));
     }
 
@@ -529,7 +529,6 @@
         messages.Add(new(ChatRole.System, systemPrompt));
         conversationId = null;
         pinnedModel = null;
-        crew = CrewState.FromConfig(Config);
         title = null;
         attachedFileName = null;
         status = null;
