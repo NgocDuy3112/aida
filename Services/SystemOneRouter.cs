@@ -9,9 +9,9 @@ public class SystemOneRouter(HttpClient http, IConfiguration config, ILogger<Sys
     private readonly string _systemOneEndpoint = config["OpenRouter:SystemOneEndpoint"] ?? throw new InvalidOperationException("Missing configuration: OpenRouter:SystemOneEndpoint");
 
     private readonly string _systemOneModel = config["OpenRouter:SystemOneModel"] ?? throw new InvalidOperationException("Missing configuration: OpenRouter:SystemOneModel");
-    private readonly string _strongModel = config["OpenRouter:StrongModel"] ?? throw new InvalidOperationException("Missing configuration: OpenRouter:StrongModel");
-    private readonly string _moderateModel = config["OpenRouter:ModerateModel"] ?? throw new InvalidOperationException("Missing configuration: OpenRouter:ModerateModel");
-    private readonly string _lightModel = config["OpenRouter:LightModel"] ?? throw new InvalidOperationException("Missing configuration: OpenRouter:LightModel");
+    private readonly string _strongModel = config["Models:StrongModel"] ?? throw new InvalidOperationException("Missing configuration: Models:StrongModel");
+    private readonly string _moderateModel = config["Models:ModerateModel"] ?? throw new InvalidOperationException("Missing configuration: Models:ModerateModel");
+    private readonly string _lightModel = config["Models:LightModel"] ?? throw new InvalidOperationException("Missing configuration: Models:LightModel");
 
     public async Task<string> PickChatModelAsync(string userMessage, CancellationToken ct = default)
     {

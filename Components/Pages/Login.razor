@@ -3,14 +3,14 @@
 @using aida.Extensions
 @inject IConfiguration Config
 
-<PageTitle>Sign in</PageTitle>
+<PageTitle>Đăng nhập</PageTitle>
 
 <main class="login-shell">
     <div class="login-card">
         <div class="login-brand">
             <div class="login-mark" aria-hidden="true">C</div>
             <h1>Chatbot Chay Tau</h1>
-            <p class="login-sub">Ask questions about your own documents.</p>
+            <p class="login-sub">Trợ lý AI agentic — tự research, dùng công cụ và xử lý tài liệu cho bạn.</p>
         </div>
 
         @if (!string.IsNullOrEmpty(Error))
@@ -27,16 +27,16 @@
                     <path fill="#FBBC05" d="M4.6 14.2a8.4 8.4 0 0 1 0-4.4L1 7.1a12 12 0 0 0 0 10.8l3.6-2.7Z" />
                     <path fill="#EA4335" d="M12 4.7c2.3 0 3.9.9 4.8 1.7l3-3C18 1.6 15.2.4 12 .4 7.7.4 3.9 3.1 1 7.1l3.6 2.7A7.9 7.9 0 0 1 12 4.7Z" />
                 </svg>
-                Continue with Google
+                Tiếp tục với Google
             </a>
         }
         else
         {
             <p class="login-note">
-                Google sign-in isn't configured. Set
-                <code>Authentication__Google__ClientId</code> and
-                <code>Authentication__Google__ClientSecret</code> in <code>.env</code>
-                to enable it.
+                Đăng nhập Google chưa được cấu hình. Hãy set
+                <code>Authentication__Google__ClientId</code> và
+                <code>Authentication__Google__ClientSecret</code> trong <code>.env</code>
+                để bật.
             </p>
         }
 
@@ -51,16 +51,16 @@
                 <input class="login-field" type="password" name="password"
                        placeholder="Password" required autocomplete="current-password" />
             </div>
-            <button type="submit" class="login-submit">Sign in</button>
+            <button type="submit" class="login-submit">Đăng nhập</button>
         </form>
 
-        <p class="login-switch">No account yet? <a href="/register">Create one</a></p>
+        <p class="login-switch">Chưa có tài khoản? <a href="/register">Tạo ngay</a></p>
 
         @if (Env.IsDevelopment())
         {
             <div class="login-divider"><span>or</span></div>
-            <a class="btn-dev" href="/dev-login">Continue as dev user</a>
-            <p class="login-hint">Local development only — never enabled in production.</p>
+            <a class="btn-dev" href="/dev-login">Vào bằng tài khoản dev</a>
+            <p class="login-hint">Chỉ cho phát triển local — không bao giờ bật ở production.</p>
         }
     </div>
 </main>
@@ -84,26 +84,26 @@
         get
         {
             if (Error == "email")
-                return "Google didn't return a verified email address for this account — try another account.";
+                return "Tài khoản Google không trả về email đã xác minh — thử tài khoản khác.";
             if (Error == "external")
-                return "Sign-in was interrupted — please try again.";
+                return "Quá trình đăng nhập bị gián đoạn — thử lại.";
             if (Error == "unconfirmed")
-                return "This email address is not confirmed.";
+                return "Email này chưa được xác nhận.";
             if (Error == "notconfigured")
-                return "Google sign-in isn't configured on this server.";
+                return "Đăng nhập Google chưa được cấu hình trên máy chủ.";
             if (Error == "create")
-                return "Couldn't create your account — please try again.";
+                return "Không tạo được tài khoản của bạn — thử lại.";
             if (Error == "link")
-                return "Couldn't link your Google account — please try again.";
+                return "Không liên kết được tài khoản Google — thử lại.";
             if (Error == "provider")
-                return "Unknown sign-in provider.";
+                return "Nhà cung cấp đăng nhập không xác định.";
             if (Error == "invalidcredentials")
-                return "Incorrect email or password.";
+                return "Email hoặc mật khẩu không đúng.";
             if (Error == "googleonly")
-                return "This account signs in with Google — use \"Continue with Google\" instead.";
+                return "Tài khoản này đăng nhập bằng Google — dùng nút \"Tiếp tục với Google\".";
             if (Error == "lockedout")
-                return "Too many failed attempts — try again in a few minutes.";
-            return "Sign-in failed — please try again.";
+                return "Sai quá nhiều lần — thử lại sau vài phút.";
+            return "Đăng nhập thất bại — thử lại.";
         }
     }
 

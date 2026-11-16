@@ -10,4 +10,6 @@ public class AppUser : IdentityUser
     public string? GoogleRefreshToken { get; set; }
 
     public DateTime? GoogleRefreshTokenObtainedUtc { get; set; }
+
+    public string? AgentSettingsJson { get; set; }
 }

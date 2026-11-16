@@ -98,16 +98,18 @@ public static class AuthEndpointExtensions
         }).RequireAuthorization();
 
         app.MapPost("/account/google/disconnect", async (
-            ClaimsPrincipal principal, UserManager<AppUser> userManager) =>
+            HttpContext context, UserManager<AppUser> userManager) =>
         {
-            var user = await userManager.GetUserAsync(principal);
+            var form = await context.Request.ReadFormAsync();
+            var returnUrl = form["returnUrl"].ToString();
+            var user = await userManager.GetUserAsync(context.User);
             if (user is not null)
             {
                 user.GoogleRefreshToken = null;
                 user.GoogleRefreshTokenObtainedUtc = null;
                 await userManager.UpdateAsync(user);
             }
-            return Results.Redirect("/");
+            return Results.Redirect(SafeReturnUrl(returnUrl));
         }).RequireAuthorization();
 
         app.MapPost("/account/password-signin", async (

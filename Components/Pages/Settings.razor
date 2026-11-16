@@ -1,0 +1,266 @@
+@page "/settings"
+@attribute [Authorize]
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Identity
+@using aida.Services.Agents
+@using aida.Extensions
+@inject AuthenticationStateProvider AuthState
+@inject UserManager<AppUser> UserManager
+@inject IConfiguration Config
+
+<PageTitle>Cài đặt</PageTitle>
+
+<div class="settings-page">
+    <header class="settings-head">
+        <div>
+            <h1>Cài đặt</h1>
+            <p class="settings-sub">Cá nhân cho tài khoản của bạn</p>
+        </div>
+    </header>
+
+    <section class="settings-card">
+        <h2>Tài khoản</h2>
+        <div class="account-row">
+            @if (!string.IsNullOrWhiteSpace(user?.AvatarUrl))
+            {
+                <img class="account-avatar" src="@user.AvatarUrl" alt="" />
+            }
+            else
+            {
+                <span class="account-avatar account-avatar-fallback" aria-hidden="true">@AccountInitial</span>
+            }
+            <div class="account-identity">
+                <span class="account-name">@AccountName</span>
+                <span class="account-email">@(user?.Email)</span>
+            </div>
+        </div>
+        <div class="account-methods">
+            @if (AnyLoginMethod)
+            {
+                <span class="account-methods-label">Đăng nhập bằng</span>
+            }
+            @if (hasPassword)
+            {
+                <span class="account-badge">Mật khẩu</span>
+            }
+            @if (hasGoogleLogin)
+            {
+                <span class="account-badge">Google</span>
+            }
+        </div>
+    </section>
+
+    <section class="settings-card">
+        <h2>Kết nối Google</h2>
+        <p class="settings-note">Quyền truy cập của AIDA vào Drive, Docs và Sheets của bạn.</p>
+        <GoogleConnectorRows Connected="@GoogleConnected" GoogleConfigured="@googleConfigured" />
+    </section>
+
+    <section class="settings-card">
+        <div>
+            <h2>Mô hình Agent</h2>
+            <p class="settings-note">
+                Áp dụng cho mọi hội thoại của bạn — Researcher xử lý nghiên cứu,
+                Writer soạn thảo, thinking quyết định mức suy luận.
+            </p>
+        </div>
+
+        @if (!string.IsNullOrEmpty(status))
+        {
+            <p class="settings-status">@status</p>
+        }
+
+        <div class="settings-row">
+            <span class="settings-label">Director · Thinking</span>
+            <select class="settings-select" value="@crew.DirectorThinking"
+                    @onchange="e => UpdateCrew(c => c with { DirectorThinking = Value(e, c.DirectorThinking) })">
+                @foreach (var t in CrewOptions.ThinkingLevels)
+                {
+                    <option value="@t">@t</option>
+                }
+            </select>
+        </div>
+
+        <div class="settings-row">
+            <span class="settings-label">Researchers · Model</span>
+            <select class="settings-select" value="@crew.ResearcherModel"
+                    @onchange="e => UpdateCrew(c => c with { ResearcherModel = Value(e, c.ResearcherModel) })">
+                @foreach (var m in ModelsFor(crew.ResearcherModel))
+                {
+                    <option value="@m">@m</option>
+                }
+            </select>
+        </div>
+
+        <div class="settings-row">
+            <span class="settings-label">Researchers · Thinking</span>
+            <select class="settings-select" value="@crew.ResearcherThinking"
+                    @onchange="e => UpdateCrew(c => c with { ResearcherThinking = Value(e, c.ResearcherThinking) })">
+                @foreach (var t in CrewOptions.ThinkingLevels)
+                {
+                    <option value="@t">@t</option>
+                }
+            </select>
+        </div>
+
+        <div class="settings-row">
+            <span class="settings-label">Writer · Model</span>
+            <select class="settings-select" value="@crew.WriterModel"
+                    @onchange="e => UpdateCrew(c => c with { WriterModel = Value(e, c.WriterModel) })">
+                @foreach (var m in ModelsFor(crew.WriterModel))
+                {
+                    <option value="@m">@m</option>
+                }
+            </select>
+        </div>
+
+        <div class="settings-row">
+            <span class="settings-label">Writer · Thinking</span>
+            <select class="settings-select" value="@crew.WriterThinking"
+                    @onchange="e => UpdateCrew(c => c with { WriterThinking = Value(e, c.WriterThinking) })">
+                @foreach (var t in CrewOptions.ThinkingLevels)
+                {
+                    <option value="@t">@t</option>
+                }
+            </select>
+        </div>
+
+        <div class="settings-actions">
+            <button type="button" class="settings-save" @onclick="SaveAsync">Lưu cài đặt</button>
+        </div>
+    </section>
+</div>
+
+@code {
+    private AppUser? user;
+    private CrewState crew = new("", "", "", "off", "off", "off");
+    private string? status;
+    private bool hasPassword;
+    private bool hasGoogleLogin;
+    private bool googleConfigured;
+    private readonly List<string> modelOptions = [];
+
+    private string AccountName
+    {
+        get
+        {
+            if (user is null)
+                return "";
+            if (!string.IsNullOrWhiteSpace(user.DisplayName))
+                return user.DisplayName;
+            if (user.Email is not null)
+                return user.Email;
+            return "";
+        }
+    }
+
+    private string AccountInitial
+    {
+        get
+        {
+            var name = AccountName;
+            if (name.Length == 0)
+                return "?";
+            return name[..1].ToUpperInvariant();
+        }
+    }
+
+    private bool AnyLoginMethod
+    {
+        get
+        {
+            if (hasPassword)
+                return true;
+            if (hasGoogleLogin)
+                return true;
+            return false;
+        }
+    }
+
+    private bool GoogleConnected
+    {
+        get
+        {
+            if (user is null)
+                return false;
+            return !string.IsNullOrWhiteSpace(user.GoogleRefreshToken);
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        googleConfigured = IdentityExtensions.IsGoogleConfigured(Config);
+
+        var models = Config.GetSection("Models");
+        foreach (var model in models.GetSection("ChatModels").GetChildren()
+                     .Select(c => c.Value)
+                     .Where(v => !string.IsNullOrWhiteSpace(v))!)
+        {
+            if (!modelOptions.Contains(model!))
+                modelOptions.Add(model!);
+        }
+
+        if (modelOptions.Count == 0)
+        {
+            foreach (var key in new[] { "StrongModel", "ModerateModel", "LightModel" })
+            {
+                var model = models[key];
+                if (!string.IsNullOrWhiteSpace(model) && !modelOptions.Contains(model))
+                    modelOptions.Add(model);
+            }
+        }
+
+        var state = await AuthState.GetAuthenticationStateAsync();
+        var userId = state.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
+        user = await UserManager.FindByIdAsync(userId);
+        if (user is not null)
+        {
+            hasPassword = !string.IsNullOrEmpty(user.PasswordHash);
+            var logins = await UserManager.GetLoginsAsync(user);
+            hasGoogleLogin = logins.Any(l => l.LoginProvider == "Google");
+        }
+        crew = AgentSettings.Load(user, Config);
+    }
+
+    private List<string> ModelsFor(string current)
+    {
+        var list = new List<string>(modelOptions);
+        if (!string.IsNullOrWhiteSpace(current) && !list.Contains(current))
+            list.Insert(0, current);
+        return list;
+    }
+
+    private void UpdateCrew(Func<CrewState, CrewState> update)
+    {
+        crew = update(crew);
+    }
+
+    private static string Value(ChangeEventArgs e, string fallback)
+    {
+        var value = e.Value as string;
+        if (string.IsNullOrWhiteSpace(value))
+            return fallback;
+        return value;
+    }
+
+    private async Task SaveAsync()
+    {
+        status = null;
+
+        if (user is null)
+        {
+            status = "Không tìm thấy tài khoản — thử đăng nhập lại.";
+            return;
+        }
+
+        user.AgentSettingsJson = AgentSettings.Serialize(crew);
+        var result = await UserManager.UpdateAsync(user);
+        if (result.Succeeded)
+        {
+            status = "Đã lưu cài đặt.";
+            return;
+        }
+
+        status = "Không lưu được — thử lại.";
+    }
+}

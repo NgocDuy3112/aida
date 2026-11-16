@@ -66,6 +66,7 @@ builder.Services.AddScoped<IUsageTracker, UsageTracker>();
 builder.Services.AddScoped<IUsageReport, UsageReport>();
 
 var or = builder.Configuration.GetSection("OpenRouter");
+var models = builder.Configuration.GetSection("Models");
 var options = new OpenAIClientOptions { 
     Endpoint = new Uri(or["BaseUrl"] ?? "https://openrouter.ai/api/v1") 
 };
@@ -73,9 +74,9 @@ var openAIClient = new OpenAIClient(new ApiKeyCredential(or["ApiKey"]!), options
 builder.Services.AddSingleton(openAIClient);
 
 #pragma warning disable OPENAI001
-var chatClient = openAIClient.GetResponsesClient().AsIChatClient(or["LightModel"]!);
+var chatClient = openAIClient.GetResponsesClient().AsIChatClient(models["LightModel"]!);
 #pragma warning restore OPENAI001
-var embeddings = openAIClient.GetEmbeddingClient(or["EmbeddingModel"]!).AsIEmbeddingGenerator();
+var embeddings = openAIClient.GetEmbeddingClient(models["EmbeddingModel"]!).AsIEmbeddingGenerator();
 
 builder.Services.AddHttpClient<SystemOneRouter>();
 builder.Services.AddHttpClient<WebSearchTool>();
