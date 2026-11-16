@@ -1,14 +1,14 @@
 @page "/register"
 @attribute [AllowAnonymous]
 
-<PageTitle>Create account</PageTitle>
+<PageTitle>Tạo tài khoản</PageTitle>
 
 <main class="login-shell">
     <div class="login-card">
         <div class="login-brand">
             <div class="login-mark" aria-hidden="true">C</div>
-            <h1>Create your account</h1>
-            <p class="login-sub">Sign up with your email and password.</p>
+            <h1>Tạo tài khoản</h1>
+            <p class="login-sub">Đăng ký bằng email và mật khẩu.</p>
         </div>
 
         @if (!string.IsNullOrEmpty(Error))
@@ -26,10 +26,10 @@
                 <input class="login-field" type="password" name="confirm"
                        placeholder="Confirm password" required autocomplete="new-password" />
             </div>
-            <button type="submit" class="login-submit">Create account</button>
+            <button type="submit" class="login-submit">Tạo tài khoản</button>
         </form>
 
-        <p class="login-switch">Already have an account? <a href="/login">Sign in</a></p>
+        <p class="login-switch">Đã có tài khoản? <a href="/login">Đăng nhập</a></p>
     </div>
 </main>
 
@@ -42,14 +42,14 @@
         get
         {
             if (Error == "mismatch")
-                return "Passwords don't match.";
+                return "Mật khẩu xác nhận không khớp.";
             if (Error == "taken")
-                return "An account with this email already exists.";
+                return "Email này đã được đăng ký.";
             if (Error == "weak")
-                return "Password must be at least6 characters and include an uppercase letter, a lowercase letter, a digit and a symbol.";
+                return "Mật khẩu cần ít nhất 6 ký tự và gồm chữ hoa, chữ thường, chữ số và ký tự đặc biệt.";
             if (Error == "invalid")
-                return "Enter a valid email and password.";
-            return "Couldn't create your account — please try again.";
+                return "Hãy nhập email và mật khẩu hợp lệ.";
+            return "Không tạo được tài khoản — thử lại.";
         }
     }
 }

@@ -1,6 +1,6 @@
 <div class="topbar">
     <button type="button" class="sidebar-toggle"
-            aria-label="Toggle conversations"
+            aria-label="Ẩn/hiện danh sách hội thoại"
             aria-expanded="@(SidebarOpen ? "true" : "false")"
             @onclick="OnToggleSidebar">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
@@ -9,7 +9,7 @@
     </button>
 
     <div class="topbar-title">
-        <h1>@(string.IsNullOrWhiteSpace(Title) ? "New chat" : Title)</h1>
+        <h1>@DisplayTitle</h1>
     </div>
 </div>
 
@@ -17,6 +17,16 @@
     [Parameter] public string? Title { get; set; }
 
     [Parameter] public bool SidebarOpen { get; set; }
+
+    private string DisplayTitle
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(Title))
+                return "Chat mới";
+            return Title;
+        }
+    }
 
     [Parameter] public EventCallback OnToggleSidebar { get; set; }
 }

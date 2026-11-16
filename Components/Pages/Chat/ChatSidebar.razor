@@ -8,18 +8,18 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
                 <path stroke-linecap="round" d="M12 4.5v15m7.5-7.5h-15" />
             </svg>
-            New chat
+            Chat mới
         </button>
     </div>
 
-    <nav class="sidebar-list" aria-label="Conversations">
+    <nav class="sidebar-list" aria-label="Cuộc trò chuyện">
         @if (conversations is null)
         {
-            <p class="sidebar-empty">Loading…</p>
+            <p class="sidebar-empty">Đang tải…</p>
         }
         else if (conversations.Count == 0)
         {
-            <p class="sidebar-empty">No conversations yet.</p>
+            <p class="sidebar-empty">Chưa có cuộc trò chuyện nào.</p>
         }
         else
         {
@@ -30,7 +30,7 @@
                         <span class="sidebar-title">@conversation.Title</span>
                         <time datetime="@conversation.UpdatedAt.ToString("O")">@conversation.UpdatedAt.ToLocalTime().ToString("d MMM")</time>
                     </button>
-                    <button class="sidebar-delete" title="Delete conversation"
+                    <button class="sidebar-delete" title="Xoá cuộc trò chuyện"
                             @onclick="() => DeleteAsync(conversation.Id)">×</button>
                 </div>
             }
@@ -44,7 +44,7 @@
         </div>
         <form method="post" action="/account/signout">
             <AntiforgeryToken />
-            <button type="submit" class="sidebar-signout">Sign out</button>
+            <button type="submit" class="sidebar-signout">Đăng xuất</button>
         </form>
     </div>
 </aside>

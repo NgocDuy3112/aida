@@ -6,7 +6,7 @@
 <EditForm Model="@this" OnValidSubmit="@SendMessageAsync">
     <label class="input-box page-width">
         <textarea @ref="@textArea" @bind="@messageText"
-                  placeholder="@(AttachedFile is null ? "Ask about your documents…" : $"Ask about {AttachedFile}…")"
+                  placeholder="@(AttachedFile is null ? "Hỏi AIDA bất cứ điều gì…" : $"Hỏi AIDA về {AttachedFile}…")"
                   rows="1"></textarea>
 
         @if (pendingImages.Count > 0)
@@ -17,7 +17,7 @@
                     var index = i;
                     <span class="image-chip">
                         <img src="@pendingImages[index].DataUri" alt="@pendingImages[index].Name" />
-                        <button type="button" class="image-chip-remove" aria-label="Remove image"
+                        <button type="button" class="image-chip-remove" aria-label="Bỏ ảnh"
                                 @onclick="() => RemoveImage(index)">×</button>
                     </span>
                 }
@@ -26,53 +26,74 @@
         }
 
         <div class="tools">
-            <label class="attach" title="Attach a document">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round"
-                          d="m18.375 12.739-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l10.94-10.94A3 3 0 1 1 19.5 7.372L8.552 18.32m.009-.01-.01.01m5.699-9.941-7.81 7.81a1.5 1.5 0 0 0 2.112 2.13" />
-                </svg>
-                <InputFile OnChange="OnFileChange" accept=".pdf,.md,.docx,.xlsx" aria-label="Attach a document" />
-            </label>
+            <div class="add-picker">
+                <button type="button" class="tool-btn @AddTriggerClass"
+                        title="Thêm"
+                        aria-label="Thêm"
+                        aria-haspopup="menu"
+                        aria-expanded="@AddExpanded"
+                        @onclick="ToggleAddMenu">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                        <path stroke-linecap="round" d="M12 5v14M5 12h14" />
+                    </svg>
+                </button>
 
-            <label class="tool-btn" title="Take a photo">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round"
-                          d="M4 7h3l2-2h6l2 2h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1Z" />
-                    <circle cx="12" cy="13" r="3.5" />
-                </svg>
-                <InputFile OnChange="OnImagesSelected" accept="image/*" capture="environment"
-                           aria-label="Take a photo" />
-            </label>
+                @if (addOpen)
+                {
+                    <div class="model-menu-backdrop" @onclick="CloseAddMenu"></div>
+                    <div class="add-menu" role="menu" aria-label="Thêm">
+                        <label class="add-item" role="menuitem" @onclick="CloseAddMenu">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                      d="m18.375 12.739-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l10.94-10.94A3 3 0 1 1 19.5 7.372L8.552 18.32m.009-.01-.01.01m5.699-9.941-7.81 7.81a1.5 1.5 0 0 0 2.112 2.13" />
+                            </svg>
+                            <span>Đính kèm tài liệu</span>
+                            <InputFile OnChange="OnFileChange" accept=".pdf,.md,.docx,.xlsx" aria-label="Đính kèm tài liệu" />
+                        </label>
 
-            <label class="tool-btn" title="Add images (up to 10)">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-                    <rect x="3" y="4" width="18" height="16" rx="2" />
-                    <circle cx="8.5" cy="9.5" r="1.5" />
-                    <path stroke-linecap="round" stroke-linejoin="round"
-                          d="m4 17 5-5 4 4 3-3 4 4" />
-                </svg>
-                <InputFile OnChange="OnImagesSelected" accept="image/*" multiple
-                           aria-label="Add images" />
-            </label>
+                        <label class="add-item" role="menuitem" @onclick="CloseAddMenu">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                      d="M4 7h3l2-2h6l2 2h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1Z" />
+                                <circle cx="12" cy="13" r="3.5" />
+                            </svg>
+                            <span>Chụp ảnh</span>
+                            <InputFile OnChange="OnImagesSelected" accept="image/*" capture="environment"
+                                       aria-label="Chụp ảnh" />
+                        </label>
 
-            <button type="button" class="tool-btn mic @(listening ? "is-listening" : null)"
-                    title="@(voiceSupported ? (listening ? "Stop listening" : "Voice input (Vietnamese)") : "Voice input needs Chrome or Edge")"
-                    aria-label="Voice input" aria-pressed="@listening"
-                    disabled="@(!voiceSupported)"
-                    @onclick="ToggleVoice">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round"
-                          d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z" />
-                    <path stroke-linecap="round" d="M5 11v1a7 7 0 0 0 14 0v-1M12 19v3" />
-                </svg>
-            </button>
+                        <label class="add-item" role="menuitem" @onclick="CloseAddMenu">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                                <rect x="3" y="4" width="18" height="16" rx="2" />
+                                <circle cx="8.5" cy="9.5" r="1.5" />
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                      d="m4 17 5-5 4 4 3-3 4 4" />
+                            </svg>
+                            <span>Thêm ảnh</span>
+                            <InputFile OnChange="OnImagesSelected" accept="image/*" multiple aria-label="Thêm ảnh" />
+                        </label>
+
+                        <button type="button" class="add-item @VoiceItemClass"
+                                role="menuitem"
+                                disabled="@(!voiceSupported)"
+                                @onclick="ToggleVoice">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                      d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z" />
+                                <path stroke-linecap="round" d="M5 11v1a7 7 0 0 0 14 0v-1M12 19v3" />
+                            </svg>
+                            <span>@VoiceLabel</span>
+                        </button>
+                    </div>
+                }
+            </div>
 
             <GoogleConnectors />
 
-            <div class="mode-switch" role="group" aria-label="Chat mode">
+            <div class="mode-switch" role="group" aria-label="Chế độ chat">
                 <button type="button" class="mode-option @(Mode == ChatMode.Ask ? "is-active" : null)"
                         aria-pressed="@(Mode == ChatMode.Ask)"
-                        @onclick="() => SetMode(ChatMode.Ask)">Ask</button>
+                        @onclick="() => SetMode(ChatMode.Ask)">Hỏi</button>
                 <button type="button" class="mode-option @(Mode == ChatMode.Agent ? "is-active" : null)"
                         aria-pressed="@(Mode == ChatMode.Agent)"
                         @onclick="() => SetMode(ChatMode.Agent)">Agent</button>
@@ -86,7 +107,7 @@
                         @ref="triggerButton"
                         @onclick="ToggleMenu">
                     <ProviderIcon ModelId="@PinnedModel" />
-                    <span class="model-trigger-label">@(PinnedModel ?? "Auto")</span>
+                    <span class="model-trigger-label">@(PinnedModel ?? "Tự động")</span>
                     <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                          stroke-width="2" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
@@ -129,7 +150,7 @@
             {
                 <div class="crew-picker">
                     <button type="button" class="tool-btn @(crewOpen ? "is-open" : null)"
-                            title="Crew: model & thinking per role (session)"
+                            title="Crew: model & thinking theo vai trò (phiên này)"
                             aria-label="Crew settings" aria-haspopup="dialog"
                             aria-expanded="@(crewOpen ? "true" : "false")"
                             @onclick="() => crewOpen = !crewOpen">&#9881;</button>
@@ -195,14 +216,14 @@
                                     }
                                 </select>
                             </div>
-                            <p class="crew-note">Session only — resets on New chat. A pinned model
-                                overrides the Director. Thinking "off" = provider default.</p>
+                            <p class="crew-note">Chỉ trong phiên — reset khi Chat mới. Model đã ghim
+                                sẽ ghi đè Director. Thinking "off" = mặc định của provider.</p>
                         </div>
                     }
                 </div>
             }
 
-            <button type="submit" title="Send" class="send-button" aria-label="Send message">
+            <button type="submit" title="Gửi" class="send-button" aria-label="Gửi tin nhắn">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round"
                           d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" />
@@ -249,6 +270,62 @@
     [Parameter] public EventCallback<CrewState> CrewChanged { get; set; }
 
     private bool crewOpen;
+
+    private bool addOpen;
+
+    private string? AddTriggerClass
+    {
+        get
+        {
+            if (addOpen)
+                return "is-open";
+            if (listening)
+                return "is-listening";
+            return null;
+        }
+    }
+
+    private string AddExpanded
+    {
+        get
+        {
+            if (addOpen)
+                return "true";
+            return "false";
+        }
+    }
+
+    private string? VoiceItemClass
+    {
+        get
+        {
+            if (listening)
+                return "is-active";
+            return null;
+        }
+    }
+
+    private string VoiceLabel
+    {
+        get
+        {
+            if (listening)
+                return "Dừng ghi âm";
+            if (!voiceSupported)
+                return "Nhập giọng nói không khả dụng";
+            return "Nhập giọng nói (tiếng Việt)";
+        }
+    }
+
+    private void ToggleAddMenu()
+    {
+        addOpen = !addOpen;
+    }
+
+    private void CloseAddMenu()
+    {
+        addOpen = false;
+    }
 
     private void SetCrew(Func<CrewState, CrewState> update)
     {
@@ -391,7 +468,7 @@
 
         if (capacity <= 0)
         {
-            SetStatus($"Maximum {MaxImages} images — remove one first.");
+            SetStatus($"Tối đa {MaxImages} ảnh — bỏ bớt ảnh đã thêm trước.");
             return;
         }
 
@@ -400,14 +477,14 @@
         {
             if (accepted >= capacity)
             {
-                SetStatus($"Only {MaxImages} images allowed — extras were skipped.");
+                SetStatus($"Chỉ nhận {MaxImages} ảnh — phần dư đã bị bỏ qua.");
                 break;
             }
 
             var mediaType = GuessMediaType(file);
             if (mediaType is null)
             {
-                SetStatus($"'{file.Name}' is not a supported image (use PNG, JPEG, WebP or GIF).");
+                SetStatus($"'{file.Name}' không phải ảnh được hỗ trợ (dùng PNG, JPEG, WebP hoặc GIF).");
                 continue;
             }
 
@@ -423,11 +500,11 @@
             }
             catch (IOException)
             {
-                SetStatus($"'{file.Name}' is too large (max 5 MB).");
+                SetStatus($"'{file.Name}' quá lớn (tối đa 5 MB).");
             }
             catch (Exception ex) when (ex is JSException or InvalidOperationException)
             {
-                SetStatus($"Could not read '{file.Name}': {ex.Message}");
+                SetStatus($"Không đọc được '{file.Name}': {ex.Message}");
             }
         }
     }
@@ -477,7 +554,7 @@
         }
         else
         {
-            SetStatus("Voice input isn't supported in this browser — try Chrome or Edge.");
+            SetStatus("Trình duyệt này không hỗ trợ nhập giọng nói — thử Chrome hoặc Edge.");
         }
     }
 

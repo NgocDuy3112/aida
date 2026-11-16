@@ -2,26 +2,26 @@
 @attribute [Authorize(Roles = "Admin")]
 @inject IUsageReport Report
 
-<PageTitle>Admin · usage &amp; cost</PageTitle>
+<PageTitle>Admin · sử dụng &amp; chi phí</PageTitle>
 
 <div class="admin-page">
     <header class="admin-head">
         <div>
-            <h1>Usage &amp; cost</h1>
-            <p class="admin-sub">last @Days days · UTC</p>
+            <h1>Sử dụng &amp; chi phí</h1>
+            <p class="admin-sub">@Days ngày gần đây · UTC</p>
         </div>
         <button type="button" class="admin-refresh" @onclick="LoadAsync" disabled="@loading">
-            @(loading ? "Refreshing…" : "Refresh")
+            @RefreshLabel
         </button>
     </header>
 
     @if (overview is null)
     {
-        <p class="admin-muted">@(loadError ?? "Loading…")</p>
+        <p class="admin-muted">@(loadError ?? "Đang tải…")</p>
     }
     else if (overview.Requests == 0)
     {
-        <p class="admin-muted">No calls recorded yet — ask a question in the chat and come back.</p>
+        <p class="admin-muted">Chưa có lượt gọi nào — hãy đặt câu hỏi trong chat rồi quay lại đây.</p>
     }
     else
     {
@@ -30,11 +30,11 @@
 
         <section class="stat-cards">
             <div class="stat-card">
-                <span class="stat-label">Cost today</span>
+                <span class="stat-label">Chi phí hôm nay</span>
                 <span class="stat-value">@Money(todayStat?.Cost ?? 0m)</span>
             </div>
             <div class="stat-card">
-                <span class="stat-label">Requests</span>
+                <span class="stat-label">Yêu cầu</span>
                 <span class="stat-value">@overview.Requests</span>
             </div>
             <div class="stat-card">
@@ -42,7 +42,7 @@
                 <span class="stat-value">@Tokens(overview.PromptTokens + overview.CompletionTokens)</span>
             </div>
             <div class="stat-card">
-                <span class="stat-label">Active users</span>
+                <span class="stat-label">Người dùng hoạt động</span>
                 <span class="stat-value">@overview.DistinctUsers</span>
             </div>
         </section>
@@ -50,19 +50,19 @@
         @if (overview.UnpricedRequests > 0)
         {
             <p class="admin-note">
-                @overview.UnpricedRequests call(s) have no pricing entry — their cost is excluded
-                (add the model to <code>OpenRouter:Pricing</code>).
+                @overview.UnpricedRequests lượt gọi chưa có giá — chi phí của chúng bị loại khỏi tổng
+                (thêm model vào <code>OpenRouter:Pricing</code>).
             </p>
         }
 
         <section class="admin-section">
-            <h2>By model</h2>
+            <h2>Theo model</h2>
             <div class="table-scroll">
                 <table class="admin-table">
                     <thead>
                         <tr>
-                            <th>Model</th><th class="num">Requests</th><th class="num">Prompt</th>
-                            <th class="num">Completion</th><th class="num">Cost</th><th>Share</th>
+                            <th>Model</th><th class="num">Yêu cầu</th><th class="num">Prompt</th>
+                            <th class="num">Completion</th><th class="num">Chi phí</th><th>Tỷ lệ</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -88,11 +88,11 @@
         </section>
 
         <section class="admin-section">
-            <h2>By day</h2>
+            <h2>Theo ngày</h2>
             <div class="table-scroll">
                 <table class="admin-table">
                     <thead>
-                        <tr><th>Day (UTC)</th><th class="num">Requests</th><th class="num">Tokens</th><th class="num">Cost</th></tr>
+                        <tr><th>Ngày (UTC)</th><th class="num">Yêu cầu</th><th class="num">Tokens</th><th class="num">Chi phí</th></tr>
                     </thead>
                     <tbody>
                         @foreach (var d in overview.ByDay)
@@ -110,11 +110,11 @@
         </section>
 
         <section class="admin-section">
-            <h2>By mode</h2>
+            <h2>Theo chế độ</h2>
             <div class="table-scroll">
                 <table class="admin-table">
                     <thead>
-                        <tr><th>Mode</th><th class="num">Requests</th><th class="num">Cost</th><th class="num">Errors</th></tr>
+                        <tr><th>Chế độ</th><th class="num">Yêu cầu</th><th class="num">Chi phí</th><th class="num">Lỗi</th></tr>
                     </thead>
                     <tbody>
                         @foreach (var m in overview.ByMode)
@@ -132,11 +132,11 @@
         </section>
 
         <section class="admin-section">
-            <h2>Top users</h2>
+            <h2>Người dùng hàng đầu</h2>
             <div class="table-scroll">
                 <table class="admin-table">
                     <thead>
-                        <tr><th>User</th><th class="num">Requests</th><th class="num">Cost</th><th>Last seen</th></tr>
+                        <tr><th>Người dùng</th><th class="num">Yêu cầu</th><th class="num">Chi phí</th><th>Hoạt động gần nhất</th></tr>
                     </thead>
                     <tbody>
                         @foreach (var u in overview.TopUsers)
@@ -154,10 +154,10 @@
         </section>
 
         <section class="admin-section">
-            <h2>Recent failures (@overview.Errors total)</h2>
+            <h2>Lỗi gần đây (tổng: @overview.Errors)</h2>
             @if (overview.RecentFailures.Count == 0)
             {
-                <p class="admin-muted">None in this window.</p>
+                <p class="admin-muted">Không có lỗi trong khoảng này.</p>
             }
             else
             {
@@ -183,6 +183,16 @@
     private bool loading;
     private string? loadError;
 
+    private string RefreshLabel
+    {
+        get
+        {
+            if (loading)
+                return "Đang làm mới…";
+            return "Làm mới";
+        }
+    }
+
     protected override async Task OnInitializedAsync() => await LoadAsync();
 
     private async Task LoadAsync()
@@ -195,7 +205,7 @@
         }
         catch (Exception ex)
         {
-            loadError = $"Could not load the report: {ex.Message}";
+            loadError = $"Không tải được báo cáo: {ex.Message}";
         }
         finally
         {

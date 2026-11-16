@@ -49,8 +49,8 @@
         <ChatMessageList Messages="@messages" InProgressMessage="@currentResponseMessage" StreamVersion="@streamVersion" ProcessSteps="@processSteps">
             <NoMessagesContent>
                 <div class="empty-state">
-                    <h2>Ask about your documents</h2>
-                    <p>Attach a PDF, Markdown, Word, or Excel file, then ask anything about it.</p>
+                    <h2>AIDA Agent</h2>
+                    <p>AIDA tự nghiên cứu, gọi công cụ và lên kế hoạch trước khi trả lời — không chỉ tra cứu tài liệu.</p>
                 </div>
             </NoMessagesContent>
         </ChatMessageList>
@@ -60,7 +60,6 @@
             {
                 <p class="status">@status</p>
             }
-            <ChatSuggestions OnSelected="@AddUserMessageAsync" @ref="@chatSuggestions"/>
             @if (currentResponseMessage is not null && (agentMode is not null || agentTodos.Count > 0))
             {
                 <div class="agent-plan" aria-live="polite">
@@ -96,7 +95,6 @@
     private CancellationTokenSource? currentResponseCancellation;
     private ChatMessage? currentResponseMessage;
     private ChatInput? chatInput;
-    private ChatSuggestions? chatSuggestions;
     private ChatSidebar? sidebar;
 
     private string userId = string.Empty;
@@ -136,7 +134,7 @@
 
         if (!await RateLimiter.TryAcquireAsync(userId))
         {
-            status = "You're sending messages too quickly — wait a moment and try again.";
+            status = "Bạn gửi tin quá nhanh — đợi một lát rồi thử lại.";
             return;
         }
 
@@ -156,12 +154,11 @@
             messages.Add(userMessage);
             await Store.AppendAsync(conversationId!.Value, userId, "user", question);
 
-            chatSuggestions?.Clear();
             status = null;
             processSteps.Clear();
             agentTodos.Clear();
             agentMode = null;
-            AddStep("Thinking…");
+            AddStep("Đang suy nghĩ…");
             await chatInput!.FocusAsync();
 
 
@@ -185,7 +182,7 @@
                 pinnedModel is not null ? "pinned" : forcedModel is not null ? "mode" : "router");
             var hits = await hitsTask;
             if (hits.Count > 0)
-                AddStep($"Searched {hits.Count} excerpts");
+                AddStep($"Đã tìm {hits.Count} đoạn");
             var prompt = BuildPrompt(question, hits);
 
             responseText = new TextContent("");
@@ -247,7 +244,6 @@
             }
 
             await sidebar!.ReloadAsync();
-            chatSuggestions?.Update(messages);
         }
         catch (OperationCanceledException)
         {
@@ -271,7 +267,7 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to answer message.");
-            status = "Something went wrong while answering. Please try again.";
+            status = "Đã có lỗi khi trả lời. Vui lòng thử lại.";
             if (myResponse is not null && ReferenceEquals(currentResponseMessage, myResponse))
             {
                 messages.Add(myResponse);
@@ -306,7 +302,7 @@
                 if (item is FunctionCallContent call)
                 {
                     toolCalls++;
-                    AddStep($"Using {call.Name.Replace('_', ' ')}");
+                    AddStep($"Dùng {call.Name.Replace('_', ' ')}");
                     streamVersion++;
                     await InvokeAsync(StateHasChanged);
                 }
@@ -315,7 +311,7 @@
             if (string.IsNullOrEmpty(text)) return;
 
             responseText!.Text += text;
-            AddStep("Generating");
+            AddStep("Đang tạo");
             streamVersion++;
             ChatMessageItem.NotifyChanged(myResponse!);
             await InvokeAsync(StateHasChanged);
@@ -356,8 +352,8 @@
 
     private static string ModeLabel(string mode) => mode.ToLowerInvariant() switch
     {
-        "plan" => "Planning",
-        "execute" => "Executing",
+        "plan" => "Lập kế hoạch",
+        "execute" => "Thực hiện",
         _ => mode,
     };
 
@@ -385,7 +381,7 @@
         var agent = reporting
             .AsHarnessAgent(new HarnessAgentOptions
             {
-                Name = "Document research agent",
+                Name = "Agent nghiên cứu tài liệu",
                 HarnessInstructions = systemPrompt,
                 MaximumIterationsPerRequest = 12,
                 DisableWebSearch = true,
@@ -453,14 +449,14 @@
 
         try
         {
-            status = $"Reading {file.Name}…";
+            status = $"Đang đọc {file.Name}…";
             await using var stream = file.OpenReadStream(maxAllowedSize: 25 * 1024 * 1024);
             attachedFileName = await Documents.SaveAndIngestAsync(stream, file.Name, userId);
-            status = $"Ready — ask anything about {attachedFileName}.";
+            status = $"Sẵn sàng — hỏi gì về {attachedFileName} cũng được.";
         }
         catch (Exception ex)
         {
-            status = $"Could not read that file: {ex.Message}";
+            status = $"Không đọc được file đó: {ex.Message}";
         }
     }
 
@@ -474,7 +470,7 @@
 
     private async Task MaybeGenerateTitleAsync(string question, string answer)
     {
-        if (title is not null && title != "New chat") return;
+        if (title is not null && title != "Chat mới") return;
 
         var fallback = question.Length > 60 ? question[..60] : question;
         var generated = fallback;
@@ -503,7 +499,6 @@
         if (string.IsNullOrWhiteSpace(userId) || id == conversationId) return;
 
         CancelAnyCurrentResponse();
-        chatSuggestions?.Clear();
 
         var rows = await Store.LoadMessagesAsync(id, userId);
         var list = await Store.ListAsync(userId);
@@ -548,7 +543,6 @@
         status = null;
         processSteps.Clear();
         sidebarOpen = false;
-        chatSuggestions?.Clear();
         if (sidebar is not null) await sidebar.ReloadAsync();
         if (chatInput is not null) await chatInput.FocusAsync();
     }

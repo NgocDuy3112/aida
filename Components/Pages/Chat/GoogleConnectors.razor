@@ -6,8 +6,8 @@
 
 <div class="connectors">
     <button type="button" class="connectors-trigger @TriggerClass"
-            title="Google connectors"
-            aria-label="Google connectors"
+            title="Kết nối Google"
+            aria-label="Kết nối Google"
             aria-haspopup="dialog"
             aria-expanded="@ExpandedValue"
             @onclick="Toggle">
@@ -24,16 +24,16 @@
     @if (open)
     {
         <div class="connectors-backdrop" @onclick="Close"></div>
-        <div class="connectors-menu" role="dialog" aria-label="Google connectors">
-            <p class="connectors-heading">Google connectors</p>
+        <div class="connectors-menu" role="dialog" aria-label="Kết nối Google">
+            <p class="connectors-heading">Kết nối Google</p>
 
             @if (!googleConfigured)
             {
                 <p class="connectors-note">
-                    Google sign-in isn't configured. Set
-                    <code>Authentication__Google__ClientId</code> and
-                    <code>Authentication__Google__ClientSecret</code> in <code>.env</code>
-                    to enable it.
+                    Đăng nhập Google chưa được cấu hình. Hãy set
+                    <code>Authentication__Google__ClientId</code> và
+                    <code>Authentication__Google__ClientSecret</code> trong <code>.env</code>
+                    để bật.
                 </p>
             }
 
@@ -53,7 +53,7 @@
                             <AntiforgeryToken />
                             <button type="submit" class="connector-toggle is-on"
                                     role="switch" aria-checked="true"
-                                    aria-label="@tool.Name" title="Turn off @tool.Name">
+                                    aria-label="@tool.Name" title="Tắt @tool.Name">
                             </button>
                         </form>
                     }
@@ -64,7 +64,7 @@
                             <input type="hidden" name="returnUrl" value="/" />
                             <button type="submit" class="connector-toggle"
                                     role="switch" aria-checked="false"
-                                    aria-label="@tool.Name" title="Turn on @tool.Name">
+                                    aria-label="@tool.Name" title="Bật @tool.Name">
                             </button>
                         </form>
                     }

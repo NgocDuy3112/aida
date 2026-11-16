@@ -4,7 +4,7 @@ public class Conversation
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public string UserId { get; set; } = default!;
-    public string Title { get; set; } = "New chat";
+    public string Title { get; set; } = "Chat mới";
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 
