@@ -49,6 +49,10 @@ internal sealed class XlsxIngestionReader : IngestionDocumentReader
                 return sharedStrings.ElementAt(idx).InnerText;
             return cell.CellValue?.Text ?? string.Empty;
         }
+        if (cell.DataType?.Value == CellValues.InlineString)
+        {
+            return cell.InlineString?.InnerText ?? string.Empty;
+        }
         return cell.CellValue?.Text ?? string.Empty;
     }
 }
