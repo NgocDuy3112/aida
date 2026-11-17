@@ -186,3 +186,107 @@
 .user-message chat-markdown p + p {
     margin-top: 6px;
 }
+
+.user-message {
+    position: relative;
+}
+
+.message-edit-btn {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    width: 24px;
+    height: 24px;
+    display: grid;
+    place-items: center;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    opacity: 0;
+    cursor: pointer;
+    transition: opacity var(--dur) var(--ease), color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+
+.user-message:hover .message-edit-btn {
+    opacity: 1;
+}
+
+.message-edit-btn:hover {
+    color: var(--text);
+    border-color: var(--accent);
+}
+
+.message-sizer {
+    visibility: hidden;
+}
+
+.message-edit-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: var(--space-3) var(--space-4);
+    min-height: 96px;
+    background: var(--surface);
+    border-radius: inherit;
+}
+
+.message-edit-input {
+    flex: 1;
+    width: 100%;
+    min-height: 56px;
+    padding: var(--space-2);
+    font: inherit;
+    font-size: 0.9rem;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-sm);
+    resize: none;
+}
+
+.message-edit-input:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.message-edit-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 6px;
+}
+
+.message-edit-save {
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 5px 14px;
+    color: var(--accent-contrast);
+    background: var(--accent);
+    border: 0;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+}
+
+.message-edit-save:hover {
+    background: var(--accent-hover);
+}
+
+.message-edit-cancel {
+    font: inherit;
+    font-size: 0.8rem;
+    padding: 5px 14px;
+    color: var(--text-muted);
+    background: none;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+}
+
+.message-edit-cancel:hover {
+    color: var(--text);
+}

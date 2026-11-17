@@ -5,6 +5,19 @@
 @if (Message.Role == ChatRole.User)
 {
     <div class="user-message">
+        @if (editing)
+        {
+            <span class="message-sizer" aria-hidden="true">@Message.Text</span>
+            <div class="message-edit-overlay">
+                <textarea class="message-edit-input" @bind="draft"></textarea>
+                <div class="message-edit-actions">
+                    <button type="button" class="message-edit-save" @onclick="SaveEditAsync">Lưu</button>
+                    <button type="button" class="message-edit-cancel" @onclick="CancelEdit">Huỷ</button>
+                </div>
+            </div>
+        }
+        else
+        {
         @if (AttachedFileNames is not null)
         {
             <div class="message-file-chips">
@@ -30,6 +43,12 @@
             </div>
         }
         <chat-markdown markdown="@Message.Text" />
+        @if (Editable)
+        {
+            <button type="button" class="message-edit-btn" aria-label="Sửa tin nhắn"
+                    title="Sửa tin nhắn" @onclick="StartEdit">✎</button>
+        }
+        }
     </div>
 }
 else if (Message.Role == ChatRole.Assistant)
@@ -114,6 +133,32 @@ else if (Message.Role == ChatRole.Assistant)
                 return files;
             return null;
         }
+    }
+
+    [Parameter]
+    public bool Editable { get; set; }
+
+    [Parameter]
+    public EventCallback<(ChatMessage Message, string Text)> OnEdit { get; set; }
+
+    private bool editing;
+    private string draft = string.Empty;
+
+    private void StartEdit()
+    {
+        draft = Message.Text ?? string.Empty;
+        editing = true;
+    }
+
+    private void CancelEdit()
+    {
+        editing = false;
+    }
+
+    private async Task SaveEditAsync()
+    {
+        editing = false;
+        await OnEdit.InvokeAsync((Message, draft));
     }
 
     [Parameter]

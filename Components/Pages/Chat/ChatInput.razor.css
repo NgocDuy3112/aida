@@ -324,13 +324,35 @@ textarea {
     }
 }
 
-.send-button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
+.stop-button {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    color: var(--text-muted);
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: color var(--dur) var(--ease), background var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
 
-.send-button:disabled:hover {
-    background: var(--accent);
+.stop-button:hover {
+    color: var(--danger);
+    background: var(--danger-surface);
+    border-color: var(--danger);
+}
+
+.stop-button svg {
+    width: 12px;
+    height: 12px;
+}
+
+.send-button.streaming {
+    margin-left: 0;
 }
 
 .file-chips {
