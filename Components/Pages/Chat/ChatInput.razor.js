@@ -20,7 +20,7 @@ function resizeToFit(elem) {
 
     elem.rows = 1;
     const numLines = Math.ceil(elem.scrollHeight / lineHeight);
-    elem.rows = Math.min(5, Math.max(1, numLines));
+    elem.rows = Math.max(1, numLines);
 }
 
 function afterPropertyWritten(target, propName, callback) {

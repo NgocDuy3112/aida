@@ -12,6 +12,8 @@ public interface IConversationStore
     Task<ConversationSummary> CreateAsync(string userId, CancellationToken ct = default);
     Task<IReadOnlyList<ChatMessageRecord>> LoadMessagesAsync(Guid conversationId, string userId, CancellationToken ct = default);
     Task AppendAsync(Guid conversationId, string userId, string role, string text, CancellationToken ct = default);
+    Task UpdateMessageAsync(Guid conversationId, string userId, int ordinal, string text, CancellationToken ct = default);
+    Task DeleteMessagesFromAsync(Guid conversationId, string userId, int ordinal, CancellationToken ct = default);
     Task RenameAsync(Guid conversationId, string userId, string title, CancellationToken ct = default);
     Task DeleteAsync(Guid conversationId, string userId, CancellationToken ct = default);
 }

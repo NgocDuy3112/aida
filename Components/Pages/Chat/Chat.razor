@@ -2,6 +2,7 @@
 @attribute [Authorize]
 @using System.Security.Claims
 @using System.Diagnostics
+@using System.Text.RegularExpressions
 @using Microsoft.AspNetCore.Identity
 @using OpenAI
 @using Microsoft.Agents.AI
@@ -46,7 +47,7 @@
         OnToggleSidebar="() => sidebarOpen = !sidebarOpen"
         />
 
-        <ChatMessageList Messages="@messages" Attachments="@messageAttachments" InProgressMessage="@currentResponseMessage" StreamVersion="@streamVersion" ProcessSteps="@processSteps">
+        <ChatMessageList Messages="@messages" Attachments="@messageAttachments" Editable="@CanEditMessages" OnEditMessage="@EditUserMessageAsync" InProgressMessage="@currentResponseMessage" StreamVersion="@streamVersion" ProcessSteps="@processSteps">
             <NoMessagesContent>
                 <div class="empty-state">
                     <h2>AIDA Agent</h2>
@@ -59,6 +60,13 @@
             {
                 <p class="status">@status</p>
             }
+            @if (pendingQuestion is not null)
+            {
+                <div class="ask-user-panel" role="status">
+                    <span class="ask-user-badge">AIDA hỏi</span>
+                    <p class="ask-user-question">@pendingQuestion</p>
+                </div>
+            }
             <ChatInput
             OnSend="@AddUserMessageAsync"
             OnFileSelected="@UploadAsync"
@@ -66,6 +74,8 @@
             OnRemoveFile="@RemoveAttachedFile"
             @bind-PinnedModel="pinnedModel"
             StatusChanged="@((string? s) => status = s)"
+            IsStreaming="@(currentResponseMessage is not null)"
+            OnStop="@CancelAnyCurrentResponse"
             @ref="@chatInput"
             />
         </div>
@@ -85,6 +95,17 @@
     private string? title;
     private readonly List<string> attachedFiles = [];
     private string? status;
+    private string? pendingQuestion;
+
+    private bool CanEditMessages
+    {
+        get
+        {
+            if (currentResponseMessage is not null)
+                return false;
+            return true;
+        }
+    }
     private string systemPrompt = string.Empty;
     private string? pinnedModel;
     private int streamVersion;
@@ -111,7 +132,63 @@
         messages.Add(new(ChatRole.System, systemPrompt));
     }
 
-    private async Task AddUserMessageAsync(ChatMessage userMessage)
+    private Task AddUserMessageAsync(ChatMessage userMessage)
+        => ProcessUserMessageAsync(userMessage, true);
+
+    private async Task EditUserMessageAsync((ChatMessage Message, string Text) edit)
+    {
+        var original = edit.Message;
+        var newText = edit.Text;
+
+        if (conversationId is null || string.IsNullOrWhiteSpace(userId)) return;
+        if (currentResponseMessage is not null) return;
+
+        var index = messages.IndexOf(original);
+        if (index < 1) return;
+
+        var trimmed = newText.Trim();
+        if (trimmed.Length == 0) return;
+        if (string.Equals(trimmed, original.Text, StringComparison.Ordinal)) return;
+
+        for (var i = messages.Count - 1; i > index; i--)
+        {
+            messageAttachments.Remove(messages[i]);
+            messages.RemoveAt(i);
+        }
+        await Store.DeleteMessagesFromAsync(conversationId.Value, userId, index + 1);
+
+        var text = original.Contents.OfType<TextContent>().FirstOrDefault();
+        if (text is null) return;
+        text.Text = trimmed;
+        await Store.UpdateMessageAsync(conversationId.Value, userId, index, trimmed);
+
+        agentRuns.Remove(conversationId.Value);
+        ChatMessageItem.NotifyChanged(original);
+        streamVersion++;
+        await InvokeAsync(StateHasChanged);
+
+        await ProcessUserMessageAsync(original, false);
+    }
+
+    private async Task<bool> TrySteerAsync(ChatMessage userMessage)
+    {
+        if (currentResponseMessage is null) return false;
+        if (conversationId is null) return false;
+        if (!agentRuns.TryGetValue(conversationId.Value, out var activeRun)) return false;
+
+        var question = userMessage.Text ?? string.Empty;
+        messages.Add(userMessage);
+        if (attachedFiles.Count > 0)
+            messageAttachments[userMessage] = new List<string>(attachedFiles);
+        await Store.AppendAsync(conversationId.Value, userId, "user", question);
+
+        await activeRun.Injector.EnqueueMessagesAsync(
+            activeRun.Session, [userMessage], CancellationToken.None);
+        status = "Đã chuyển yêu cầu vào câu trả lời đang chạy…";
+        return true;
+    }
+
+    private async Task ProcessUserMessageAsync(ChatMessage userMessage, bool append)
     {
         if (string.IsNullOrWhiteSpace(userId)) return;
 
@@ -128,17 +205,24 @@
         var llmClock = Stopwatch.StartNew();
         try
         {
-            CancelAnyCurrentResponse();
             await EnsureConversationAsync();
 
+            if (await TrySteerAsync(userMessage)) return;
+
+            CancelAnyCurrentResponse();
+
             var question = userMessage.Text ?? string.Empty;
-            messages.Add(userMessage);
-            if (attachedFiles.Count > 0)
-                messageAttachments[userMessage] = new List<string>(attachedFiles);
-            await Store.AppendAsync(conversationId!.Value, userId, "user", question);
+            if (append)
+            {
+                messages.Add(userMessage);
+                if (attachedFiles.Count > 0)
+                    messageAttachments[userMessage] = new List<string>(attachedFiles);
+                await Store.AppendAsync(conversationId!.Value, userId, "user", question);
+            }
 
             status = null;
             processSteps.Clear();
+            pendingQuestion = null;
             AddStep("Đang suy nghĩ…");
             await chatInput!.FocusAsync();
 
@@ -194,6 +278,7 @@
             if (!string.IsNullOrWhiteSpace(responseText.Text))
             {
                 await Store.AppendAsync(conversationId!.Value, userId, "assistant", responseText.Text);
+                AttachGeneratedDocuments(responseText.Text);
                 await MaybeGenerateTitleAsync(question, responseText.Text);
             }
 
@@ -247,7 +332,31 @@
                 if (item is FunctionCallContent call)
                 {
                     toolCalls++;
-                    AddStep($"Dùng {call.Name.Replace('_', ' ')}");
+                    Logger.LogDebug("FunctionCall: {Name} args={Args}",
+                        call.Name, System.Text.Json.JsonSerializer.Serialize(call.Arguments));
+                    if (call.Name == "ask_user")
+                    {
+                        if (call.Arguments is not null)
+                        {
+                            if (call.Arguments.TryGetValue("question", out var questionValue))
+                            {
+                                if (questionValue is string questionText)
+                                {
+                                    pendingQuestion = questionText;
+                                    await chatInput!.FocusAsync();
+                                }
+                                else if (questionValue is System.Text.Json.JsonElement element)
+                                {
+                                    pendingQuestion = element.GetString();
+                                    await chatInput!.FocusAsync();
+                                }
+                            }
+                        }
+                    }
+                    else
+                    {
+                        AddStep($"Dùng {call.Name.Replace('_', ' ')}");
+                    }
                     streamVersion++;
                     await InvokeAsync(StateHasChanged);
                 }
@@ -304,7 +413,7 @@
 
     private readonly Dictionary<string, IChatClient> chatClients = [];
 
-    private sealed record AgentRun(HarnessAgent Agent, AgentSession Session, string Model, CrewState Crew);
+    private sealed record AgentRun(HarnessAgent Agent, AgentSession Session, string Model, CrewState Crew, MessageInjectingChatClient Injector);
 
     private readonly Dictionary<Guid, AgentRun> agentRuns = [];
 
@@ -329,24 +438,32 @@
             OpenAi.GetChatClient(model).AsIChatClient(),
             UsageTracker, Pricing, userId, model, "agent");
 
-        var agent = reporting
+        var tools = BuildAgentTools(model);
+        Logger.LogInformation("Agent tools: {Tools}",
+            string.Join(", ", tools.OfType<AIFunction>().Select(t => t.Name)));
+
+        var harnessInstructions = systemPrompt + "\n" + AskUserTool.Instructions;
+        Logger.LogDebug("Instructions tail: {Tail}", harnessInstructions[^220..]);
+
+        var injecting = new MessageInjectingChatClient(reporting);
+        var agent = injecting
             .AsHarnessAgent(new HarnessAgentOptions
             {
                 Name = "Agent nghiên cứu tài liệu",
-                HarnessInstructions = systemPrompt,
+                HarnessInstructions = harnessInstructions,
                 MaximumIterationsPerRequest = 12,
                 DisableWebSearch = true,
                 DisableFileMemory = true,
                 DisableAgentModeProvider = true,
                 ChatOptions = new ChatOptions
                 {
-                    Tools = BuildAgentTools(model),
+                    Tools = tools,
                     Reasoning = CrewOptions.Reasoning(crew.DirectorThinking),
                 },
             });
 
         var session = await agent.CreateSessionAsync();
-        agentRuns[conversationId] = new AgentRun(agent, session, model, crew);
+        agentRuns[conversationId] = new AgentRun(agent, session, model, crew, injecting);
         return (agent, session, true);
     }
 
@@ -386,6 +503,7 @@
             ChatDocumentTools.CreateSaveDocument(userId, Documents, GoogleWorkspace, UserManager),
             ResearchTools.Create(userId, crew.ResearcherModel, crew.ResearcherThinking),
             CrewWriter.Create(userId, crew.WriterModel, crew.WriterThinking),
+            AskUserTool.Create(),
         ];
 
         var search = WebSearch.Create(); 
@@ -422,6 +540,16 @@
     {
         attachedFiles.Remove(name);
         status = null;
+    }
+
+    private void AttachGeneratedDocuments(string responseText)
+    {
+        foreach (Match match in Regex.Matches(responseText, "/documents/([^)\\]\\s\"']+)"))
+        {
+            var name = Uri.UnescapeDataString(match.Groups[1].Value);
+            if (!attachedFiles.Contains(name))
+                attachedFiles.Add(name);
+        }
     }
 
     private async Task EnsureConversationAsync()
@@ -470,8 +598,6 @@
 
         messages.Clear();
         messages.Add(new(ChatRole.System, systemPrompt));
-        attachedFiles.Clear();
-        messageAttachments.Clear();
         foreach (var row in rows)
         {
             messages.Add(new ChatMessage(
@@ -481,6 +607,7 @@
         conversationId = id;
         title = summary?.Title;
         status = null;
+        pendingQuestion = null;
         processSteps.Clear();
         sidebarOpen = false; 
         await sidebar!.ReloadAsync();
@@ -499,12 +626,11 @@
         CancelAnyCurrentResponse();
         messages.Clear();
         messages.Add(new(ChatRole.System, systemPrompt));
-        messageAttachments.Clear();
         conversationId = null;
         pinnedModel = null;
         title = null;
-        attachedFiles.Clear();
         status = null;
+        pendingQuestion = null;
         processSteps.Clear();
         sidebarOpen = false;
         if (sidebar is not null) await sidebar.ReloadAsync();

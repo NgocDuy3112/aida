@@ -90,6 +90,41 @@ public class ConversationStore(
         await InvalidateListAsync(userId, ct);
     }
 
+    public async Task UpdateMessageAsync(Guid conversationId, string userId, int ordinal, string text, CancellationToken ct = default)
+    {
+        await WithDbAsync(async db =>
+        {
+            var row = await db.ChatMessages
+                .FirstOrDefaultAsync(m => m.ConversationId == conversationId
+                    && m.Ordinal == ordinal && m.Conversation!.UserId == userId, ct);
+            if (row is null) return false;
+
+            row.Text = text;
+            var conversation = await db.Conversations
+                .FirstOrDefaultAsync(c => c.Id == conversationId && c.UserId == userId, ct);
+            if (conversation is not null)
+                conversation.UpdatedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync(ct);
+            return true;
+        }, ct);
+
+        await InvalidateListAsync(userId, ct);
+    }
+
+    public async Task DeleteMessagesFromAsync(Guid conversationId, string userId, int ordinal, CancellationToken ct = default)
+    {
+        await WithDbAsync(async db =>
+        {
+            var rows = await db.ChatMessages
+                .Where(m => m.ConversationId == conversationId
+                    && m.Ordinal >= ordinal && m.Conversation!.UserId == userId)
+                .ToListAsync(ct);
+            db.ChatMessages.RemoveRange(rows);
+            await db.SaveChangesAsync(ct);
+            return true;
+        }, ct);
+    }
+
     public async Task RenameAsync(Guid conversationId, string userId, string title, CancellationToken ct = default)
     {
         await WithDbAsync(async db =>

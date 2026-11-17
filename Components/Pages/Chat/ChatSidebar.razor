@@ -28,7 +28,6 @@
                 <div class="sidebar-item @(conversation.Id == ActiveId ? "is-active" : "")">
                     <button class="sidebar-link" @onclick="() => SelectAsync(conversation.Id)">
                         <span class="sidebar-title">@conversation.Title</span>
-                        <time datetime="@conversation.UpdatedAt.ToString("O")">@conversation.UpdatedAt.ToLocalTime().ToString("d MMM")</time>
                     </button>
                     <button class="sidebar-delete" title="Xoá cuộc trò chuyện"
                             @onclick="() => DeleteAsync(conversation.Id)">×</button>

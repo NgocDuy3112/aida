@@ -141,8 +141,16 @@
                 }
             </div>
 
-            <button type="submit" title="Gửi" class="send-button" aria-label="Gửi tin nhắn"
-                    disabled="@sending">
+            @if (IsStreaming)
+            {
+                <button type="button" class="stop-button" title="Dừng trả lời"
+                        aria-label="Dừng trả lời" @onclick="OnStop">
+                    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                        <rect x="6" y="6" width="12" height="12" rx="2" />
+                    </svg>
+                </button>
+            }
+            <button type="submit" title="Gửi" class="send-button @SendClass" aria-label="Gửi tin nhắn">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round"
                           d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" />
@@ -165,7 +173,15 @@
 
     private readonly List<(string Name, string DataUri)> pendingImages = [];
     private IJSObjectReference? module;
-    private bool sending;
+    private string? SendClass
+    {
+        get
+        {
+            if (IsStreaming)
+                return "streaming";
+            return null;
+        }
+    }
 
     private int AttachedFileCount
     {
@@ -185,6 +201,10 @@
     [Parameter] public List<string>? AttachedFiles { get; set; }
 
     [Parameter] public EventCallback<string> OnRemoveFile { get; set; }
+
+    [Parameter] public bool IsStreaming { get; set; }
+
+    [Parameter] public EventCallback OnStop { get; set; }
 
     [Parameter] public string? PinnedModel { get; set; }
 
@@ -315,8 +335,6 @@
 
     private async Task SendMessageAsync()
     {
-        if (sending) return;
-
         var text = messageText;
         if (string.IsNullOrWhiteSpace(text) && pendingImages.Count == 0) return;
 
@@ -330,15 +348,7 @@
         pendingImages.Clear();
         messageText = null;
 
-        sending = true;
-        try
-        {
-            await OnSend.InvokeAsync(new ChatMessage(ChatRole.User, contents));
-        }
-        finally
-        {
-            sending = false;
-        }
+        await OnSend.InvokeAsync(new ChatMessage(ChatRole.User, contents));
     }
 
     private async Task OnFileChange(InputFileChangeEventArgs args)
