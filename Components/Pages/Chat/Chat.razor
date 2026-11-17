@@ -165,7 +165,7 @@
             var hits = await hitsTask;
             if (hits.Count > 0)
                 AddStep($"Đã tìm {hits.Count} đoạn");
-            var prompt = BuildPrompt(question, hits);
+            var prompt = BuildPrompt(question, hits, attachedFiles);
 
             responseText = new TextContent("");
             myResponse = new ChatMessage(ChatRole.Assistant, [responseText]);
@@ -281,25 +281,25 @@
         return scope;
     }
 
-    private static string BuildPrompt(string question, IReadOnlyList<IngestedChunk> hits)
+    private static string BuildPrompt(
+        string question, IReadOnlyList<IngestedChunk> hits, IReadOnlyList<string> attachedFiles)
     {
-        if (hits.Count == 0)
+        var parts = new List<string>();
+
+        if (attachedFiles.Count > 0)
         {
-            return $"""
-                Question: {question}
-            """;
+            parts.Add("<attached-files>\n" + string.Join("\n", attachedFiles) + "\n</attached-files>");
         }
 
-        var context = string.Join("\n", hits.Select(h =>
-            $"<result filename=\"{h.DocumentId}\">{h.Text}</result>"));
+        if (hits.Count > 0)
+        {
+            var context = string.Join("\n", hits.Select(h =>
+                $"<result filename=\"{h.DocumentId}\">{h.Text}</result>"));
+            parts.Add("<context>\n" + context + "\n</context>");
+        }
 
-        return $"""
-            <context>
-            {context}
-            </context>
-
-            Question: {question}
-            """;
+        parts.Add($"Question: {question}");
+        return string.Join("\n\n", parts);
     }
 
     private readonly Dictionary<string, IChatClient> chatClients = [];

@@ -3,7 +3,7 @@ import * as marked from './lib/marked/dist/marked.esm.js';
 
 const purify = DOMPurify(window);
 
-customElements.define('assistant-message', class extends HTMLElement {
+const createMarkdownElement = () => class extends HTMLElement {
     static observedAttributes = ['markdown'];
 
     attributeChangedCallback(name, oldValue, newValue) {
@@ -19,9 +19,23 @@ customElements.define('assistant-message', class extends HTMLElement {
             while (walker.nextNode()) {
                 walker.currentNode.textContent = walker.currentNode.textContent.replace(/&lt;/g, '<');
             }
+
+            if (typeof window.renderMathInElement === 'function') {
+                window.renderMathInElement(this, {
+                    delimiters: [
+                        { left: '$$', right: '$$', display: true },
+                        { left: '\\[', right: '\\]', display: true },
+                        { left: '\\(', right: '\\)', display: false },
+                        { left: '$', right: '$', display: false },
+                    ],
+                });
+            }
         }
     }
-});
+};
+
+customElements.define('assistant-message', createMarkdownElement());
+customElements.define('chat-markdown', createMarkdownElement());
 
 // SIG // Begin signature block
 // SIG // MIInXgYJKoZIhvcNAQcCoIInTzCCJ0sCAQExDzANBglg
