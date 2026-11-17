@@ -59,6 +59,13 @@
             {
                 <p class="status">@status</p>
             }
+            @if (pendingQuestion is not null)
+            {
+                <div class="ask-user-panel" role="status">
+                    <span class="ask-user-badge">AIDA hỏi</span>
+                    <p class="ask-user-question">@pendingQuestion</p>
+                </div>
+            }
             <ChatInput
             OnSend="@AddUserMessageAsync"
             OnFileSelected="@UploadAsync"
@@ -85,6 +92,7 @@
     private string? title;
     private readonly List<string> attachedFiles = [];
     private string? status;
+    private string? pendingQuestion;
     private string systemPrompt = string.Empty;
     private string? pinnedModel;
     private int streamVersion;
@@ -139,6 +147,7 @@
 
             status = null;
             processSteps.Clear();
+            pendingQuestion = null;
             AddStep("Đang suy nghĩ…");
             await chatInput!.FocusAsync();
 
@@ -247,7 +256,31 @@
                 if (item is FunctionCallContent call)
                 {
                     toolCalls++;
-                    AddStep($"Dùng {call.Name.Replace('_', ' ')}");
+                    Logger.LogDebug("FunctionCall: {Name} args={Args}",
+                        call.Name, System.Text.Json.JsonSerializer.Serialize(call.Arguments));
+                    if (call.Name == "ask_user")
+                    {
+                        if (call.Arguments is not null)
+                        {
+                            if (call.Arguments.TryGetValue("question", out var questionValue))
+                            {
+                                if (questionValue is string questionText)
+                                {
+                                    pendingQuestion = questionText;
+                                    await chatInput!.FocusAsync();
+                                }
+                                else if (questionValue is System.Text.Json.JsonElement element)
+                                {
+                                    pendingQuestion = element.GetString();
+                                    await chatInput!.FocusAsync();
+                                }
+                            }
+                        }
+                    }
+                    else
+                    {
+                        AddStep($"Dùng {call.Name.Replace('_', ' ')}");
+                    }
                     streamVersion++;
                     await InvokeAsync(StateHasChanged);
                 }
@@ -329,18 +362,25 @@
             OpenAi.GetChatClient(model).AsIChatClient(),
             UsageTracker, Pricing, userId, model, "agent");
 
+        var tools = BuildAgentTools(model);
+        Logger.LogInformation("Agent tools: {Tools}",
+            string.Join(", ", tools.OfType<AIFunction>().Select(t => t.Name)));
+
+        var harnessInstructions = systemPrompt + "\n" + AskUserTool.Instructions;
+        Logger.LogDebug("Instructions tail: {Tail}", harnessInstructions[^220..]);
+
         var agent = reporting
             .AsHarnessAgent(new HarnessAgentOptions
             {
                 Name = "Agent nghiên cứu tài liệu",
-                HarnessInstructions = systemPrompt,
+                HarnessInstructions = harnessInstructions,
                 MaximumIterationsPerRequest = 12,
                 DisableWebSearch = true,
                 DisableFileMemory = true,
                 DisableAgentModeProvider = true,
                 ChatOptions = new ChatOptions
                 {
-                    Tools = BuildAgentTools(model),
+                    Tools = tools,
                     Reasoning = CrewOptions.Reasoning(crew.DirectorThinking),
                 },
             });
@@ -386,6 +426,7 @@
             ChatDocumentTools.CreateSaveDocument(userId, Documents, GoogleWorkspace, UserManager),
             ResearchTools.Create(userId, crew.ResearcherModel, crew.ResearcherThinking),
             CrewWriter.Create(userId, crew.WriterModel, crew.WriterThinking),
+            AskUserTool.Create(),
         ];
 
         var search = WebSearch.Create(); 
@@ -481,6 +522,7 @@
         conversationId = id;
         title = summary?.Title;
         status = null;
+        pendingQuestion = null;
         processSteps.Clear();
         sidebarOpen = false; 
         await sidebar!.ReloadAsync();
@@ -505,6 +547,7 @@
         title = null;
         attachedFiles.Clear();
         status = null;
+        pendingQuestion = null;
         processSteps.Clear();
         sidebarOpen = false;
         if (sidebar is not null) await sidebar.ReloadAsync();
