@@ -29,7 +29,7 @@
                 }
             </div>
         }
-        @Message.Text
+        <chat-markdown markdown="@Message.Text" />
     </div>
 }
 else if (Message.Role == ChatRole.Assistant)

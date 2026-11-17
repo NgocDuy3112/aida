@@ -174,3 +174,15 @@
     overflow: hidden;
     text-overflow: ellipsis;
 }
+
+.user-message chat-markdown {
+    display: block;
+}
+
+.user-message chat-markdown p {
+    margin: 0;
+}
+
+.user-message chat-markdown p + p {
+    margin-top: 6px;
+}
