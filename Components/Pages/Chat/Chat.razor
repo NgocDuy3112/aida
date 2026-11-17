@@ -398,17 +398,22 @@
     {
         if (string.IsNullOrWhiteSpace(userId)) return;
 
+        if (!attachedFiles.Contains(file.Name))
+        {
+            attachedFiles.Add(file.Name);
+            await InvokeAsync(StateHasChanged);
+        }
+
         try
         {
             status = $"Đang đọc {file.Name}…";
             await using var stream = file.OpenReadStream(maxAllowedSize: 25 * 1024 * 1024);
-            var saved = await Documents.SaveAndIngestAsync(stream, file.Name, userId);
-            if (!attachedFiles.Contains(saved))
-                attachedFiles.Add(saved);
+            await Documents.SaveAndIngestAsync(stream, file.Name, userId);
             status = null;
         }
         catch (Exception ex)
         {
+            attachedFiles.Remove(file.Name);
             status = $"Không đọc được file đó: {ex.Message}";
         }
     }
