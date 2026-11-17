@@ -46,7 +46,7 @@
         OnToggleSidebar="() => sidebarOpen = !sidebarOpen"
         />
 
-        <ChatMessageList Messages="@messages" InProgressMessage="@currentResponseMessage" StreamVersion="@streamVersion" ProcessSteps="@processSteps">
+        <ChatMessageList Messages="@messages" Attachments="@messageAttachments" InProgressMessage="@currentResponseMessage" StreamVersion="@streamVersion" ProcessSteps="@processSteps">
             <NoMessagesContent>
                 <div class="empty-state">
                     <h2>AIDA Agent</h2>
@@ -58,22 +58,6 @@
             @if (status is not null)
             {
                 <p class="status">@status</p>
-            }
-            @if (currentResponseMessage is not null && (agentMode is not null || agentTodos.Count > 0))
-            {
-                <div class="agent-plan" aria-live="polite">
-                    @if (agentMode is not null)
-                    {
-                        <div class="agent-mode">@ModeLabel(agentMode)</div>
-                    }
-                    @foreach (var todo in agentTodos)
-                    {
-                        <div class="agent-todo @(todo.IsComplete ? "is-done" : null)">
-                            <span class="todo-mark" aria-hidden="true">@(todo.IsComplete ? "✓" : "○")</span>
-                            <span class="todo-title">@todo.Title</span>
-                        </div>
-                    }
-                </div>
             }
             <ChatInput
             OnSend="@AddUserMessageAsync"
@@ -90,6 +74,7 @@
 
 @code {
     private readonly List<ChatMessage> messages = new();
+    private readonly Dictionary<ChatMessage, List<string>> messageAttachments = [];
     private CancellationTokenSource? currentResponseCancellation;
     private ChatMessage? currentResponseMessage;
     private ChatInput? chatInput;
@@ -138,7 +123,6 @@
 
         ChatMessage? myResponse = null;
         TextContent? responseText = null;
-        var planPoll = Stopwatch.StartNew();
         var usedModel = "unknown";
         var toolCalls = 0;
         var llmClock = Stopwatch.StartNew();
@@ -149,12 +133,12 @@
 
             var question = userMessage.Text ?? string.Empty;
             messages.Add(userMessage);
+            if (attachedFiles.Count > 0)
+                messageAttachments[userMessage] = new List<string>(attachedFiles);
             await Store.AppendAsync(conversationId!.Value, userId, "user", question);
 
             status = null;
             processSteps.Clear();
-            agentTodos.Clear();
-            agentMode = null;
             AddStep("Đang suy nghĩ…");
             await chatInput!.FocusAsync();
 
@@ -163,8 +147,9 @@
                 ? Task.FromResult(pinnedModel)
                 : Router.PickChatModelAsync(question);
             var hitsTask = Task.FromResult<IReadOnlyList<IngestedChunk>>([]);
-            if (attachedFiles.Count > 0)
-                hitsTask = Search.SearchAsync(question, userId, attachedFiles, maxResults: 6);
+            var searchScope = BuildSearchScope(question);
+            if (searchScope.Count > 0)
+                hitsTask = Search.SearchAsync(question, userId, searchScope, maxResults: 6);
 
             await Task.WhenAll(modelTask, hitsTask);
 
@@ -198,7 +183,7 @@
             await foreach (var update in harness.RunStreamingAsync(
                 agentInput, session, cancellationToken: currentResponseCancellation.Token))
             {
-                await ProcessUpdateAsync(update.Text, session, update.Contents);
+                await ProcessUpdateAsync(update.Text, update.Contents);
             }
 
             llmClock.Stop();
@@ -255,14 +240,8 @@
             });
         }
 
-        async Task ProcessUpdateAsync(string? text, AgentSession? session, IList<AIContent> contents)
+        async Task ProcessUpdateAsync(string? text, IList<AIContent> contents)
         {
-            if (session is not null && planPoll.ElapsedMilliseconds >= 300)
-            {
-                planPoll.Restart();
-                await RefreshAgentPlanAsync(session);
-            }
-
             foreach (var item in contents)
             {
                 if (item is FunctionCallContent call)
@@ -282,6 +261,24 @@
             ChatMessageItem.NotifyChanged(myResponse!);
             await InvokeAsync(StateHasChanged);
         }
+    }
+
+    private List<string> BuildSearchScope(string question)
+    {
+        var scope = new List<string>(attachedFiles);
+        var documentsDir = Path.Combine(Env.ContentRootPath, "App_Data", "documents", userId);
+        if (Directory.Exists(documentsDir))
+        {
+            foreach (var path in Directory.EnumerateFiles(documentsDir))
+            {
+                var name = Path.GetFileName(path);
+                if (scope.Contains(name))
+                    continue;
+                if (question.Contains(name, StringComparison.OrdinalIgnoreCase))
+                    scope.Add(name);
+            }
+        }
+        return scope;
     }
 
     private static string BuildPrompt(string question, IReadOnlyList<IngestedChunk> hits)
@@ -310,18 +307,6 @@
     private sealed record AgentRun(HarnessAgent Agent, AgentSession Session, string Model, CrewState Crew);
 
     private readonly Dictionary<Guid, AgentRun> agentRuns = [];
-
-    private readonly TodoProvider todoProvider = new();
-    private readonly AgentModeProvider agentModeProvider = new();
-    private string? agentMode;
-    private List<AgentTodo> agentTodos = [];
-
-    private static string ModeLabel(string mode) => mode.ToLowerInvariant() switch
-    {
-        "plan" => "Lập kế hoạch",
-        "execute" => "Thực hiện",
-        _ => mode,
-    };
 
     private IChatClient CreateChatClient(string model)
     {
@@ -409,53 +394,26 @@
         return tools;
     }
 
-    private async Task RefreshAgentPlanAsync(AgentSession session)
-    {
-        try
-        {
-            var todos = await todoProvider.GetAllTodosAsync(session);
-            var mode = await agentModeProvider.GetModeAsync(session);
-
-            var mapped = todos.Select(t => new AgentTodo(t.Title, t.IsComplete)).ToList();
-            if (mapped.SequenceEqual(agentTodos)
-                && string.Equals(mode, agentMode, StringComparison.Ordinal))
-            {
-                return;
-            }
-
-            agentTodos = mapped;
-            agentMode = mode;
-            streamVersion++;
-            await InvokeAsync(StateHasChanged);
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            Logger.LogDebug(ex, "Could not refresh the agent plan panel.");
-        }
-    }
-
     private async Task UploadAsync(IBrowserFile file)
     {
         if (string.IsNullOrWhiteSpace(userId)) return;
+
+        if (!attachedFiles.Contains(file.Name))
+        {
+            attachedFiles.Add(file.Name);
+            await InvokeAsync(StateHasChanged);
+        }
 
         try
         {
             status = $"Đang đọc {file.Name}…";
             await using var stream = file.OpenReadStream(maxAllowedSize: 25 * 1024 * 1024);
-            var saved = await Documents.SaveAndIngestAsync(stream, file.Name, userId);
-            if (!attachedFiles.Contains(saved))
-                attachedFiles.Add(saved);
-            if (attachedFiles.Count == 1)
-                status = $"Đã đính kèm {saved}.";
-            else
-                status = $"Đã đính kèm {attachedFiles.Count} tài liệu.";
+            await Documents.SaveAndIngestAsync(stream, file.Name, userId);
+            status = null;
         }
         catch (Exception ex)
         {
+            attachedFiles.Remove(file.Name);
             status = $"Không đọc được file đó: {ex.Message}";
         }
     }
@@ -513,6 +471,7 @@
         messages.Clear();
         messages.Add(new(ChatRole.System, systemPrompt));
         attachedFiles.Clear();
+        messageAttachments.Clear();
         foreach (var row in rows)
         {
             messages.Add(new ChatMessage(
@@ -540,6 +499,7 @@
         CancelAnyCurrentResponse();
         messages.Clear();
         messages.Add(new(ChatRole.System, systemPrompt));
+        messageAttachments.Clear();
         conversationId = null;
         pinnedModel = null;
         title = null;
@@ -554,7 +514,5 @@
     public void Dispose()
     {
         currentResponseCancellation?.Cancel();
-        todoProvider.Dispose();
-        agentModeProvider.Dispose();
     }
 }

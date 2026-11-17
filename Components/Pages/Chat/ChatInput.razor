@@ -343,10 +343,21 @@
 
     private async Task OnFileChange(InputFileChangeEventArgs args)
     {
-        foreach (var file in args.GetMultipleFiles())
+        var throttle = new SemaphoreSlim(3);
+        var tasks = args.GetMultipleFiles().Select(async file =>
         {
-            await OnFileSelected.InvokeAsync(file);
-        }
+            await throttle.WaitAsync();
+            try
+            {
+                await OnFileSelected.InvokeAsync(file);
+            }
+            finally
+            {
+                throttle.Release();
+            }
+        }).ToList();
+
+        await Task.WhenAll(tasks);
         CloseAddMenu();
     }
 

@@ -5,6 +5,21 @@
 @if (Message.Role == ChatRole.User)
 {
     <div class="user-message">
+        @if (AttachedFileNames is not null)
+        {
+            <div class="message-file-chips">
+                @foreach (var name in AttachedFileNames)
+                {
+                    <span class="message-file-chip">
+                        <svg class="message-file-chip-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                  d="M14 3v5h5M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z" />
+                        </svg>
+                        <span class="message-file-chip-name">@name</span>
+                    </span>
+                }
+            </div>
+        }
         @if (imageSources.Count > 0)
         {
             <div class="message-images">
@@ -85,6 +100,21 @@ else if (Message.Role == ChatRole.Assistant)
 
     [Parameter, EditorRequired]
     public required ChatMessage Message { get; set; }
+
+    [Parameter]
+    public IReadOnlyDictionary<ChatMessage, List<string>>? Attachments { get; set; }
+
+    private List<string>? AttachedFileNames
+    {
+        get
+        {
+            if (Attachments is null)
+                return null;
+            if (Attachments.TryGetValue(Message, out var files))
+                return files;
+            return null;
+        }
+    }
 
     [Parameter]
     public bool InProgress { get; set;}
