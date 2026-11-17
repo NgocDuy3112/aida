@@ -78,7 +78,8 @@
             <ChatInput
             OnSend="@AddUserMessageAsync"
             OnFileSelected="@UploadAsync"
-            AttachedFile="@attachedFileName"
+            AttachedFiles="@attachedFiles"
+            OnRemoveFile="@RemoveAttachedFile"
             @bind-PinnedModel="pinnedModel"
             StatusChanged="@((string? s) => status = s)"
             @ref="@chatInput"
@@ -97,7 +98,7 @@
     private string userId = string.Empty;
     private Guid? conversationId;
     private string? title;
-    private string? attachedFileName;
+    private readonly List<string> attachedFiles = [];
     private string? status;
     private string systemPrompt = string.Empty;
     private string? pinnedModel;
@@ -161,9 +162,9 @@
             var modelTask = pinnedModel is not null
                 ? Task.FromResult(pinnedModel)
                 : Router.PickChatModelAsync(question);
-            var hitsTask = attachedFileName is null
-                ? Task.FromResult<IReadOnlyList<IngestedChunk>>([])
-                : Search.SearchAsync(question, userId, attachedFileName, maxResults: 6);
+            var hitsTask = Task.FromResult<IReadOnlyList<IngestedChunk>>([]);
+            if (attachedFiles.Count > 0)
+                hitsTask = Search.SearchAsync(question, userId, attachedFiles, maxResults: 6);
 
             await Task.WhenAll(modelTask, hitsTask);
 
@@ -351,6 +352,7 @@
                 MaximumIterationsPerRequest = 12,
                 DisableWebSearch = true,
                 DisableFileMemory = true,
+                DisableAgentModeProvider = true,
                 ChatOptions = new ChatOptions
                 {
                     Tools = BuildAgentTools(model),
@@ -444,13 +446,24 @@
         {
             status = $"Đang đọc {file.Name}…";
             await using var stream = file.OpenReadStream(maxAllowedSize: 25 * 1024 * 1024);
-            attachedFileName = await Documents.SaveAndIngestAsync(stream, file.Name, userId);
-            status = $"Sẵn sàng — hỏi gì về {attachedFileName} cũng được.";
+            var saved = await Documents.SaveAndIngestAsync(stream, file.Name, userId);
+            if (!attachedFiles.Contains(saved))
+                attachedFiles.Add(saved);
+            if (attachedFiles.Count == 1)
+                status = $"Đã đính kèm {saved}.";
+            else
+                status = $"Đã đính kèm {attachedFiles.Count} tài liệu.";
         }
         catch (Exception ex)
         {
             status = $"Không đọc được file đó: {ex.Message}";
         }
+    }
+
+    private void RemoveAttachedFile(string name)
+    {
+        attachedFiles.Remove(name);
+        status = null;
     }
 
     private async Task EnsureConversationAsync()
@@ -499,7 +512,7 @@
 
         messages.Clear();
         messages.Add(new(ChatRole.System, systemPrompt));
-        attachedFileName = null;
+        attachedFiles.Clear();
         foreach (var row in rows)
         {
             messages.Add(new ChatMessage(
@@ -530,7 +543,7 @@
         conversationId = null;
         pinnedModel = null;
         title = null;
-        attachedFileName = null;
+        attachedFiles.Clear();
         status = null;
         processSteps.Clear();
         sidebarOpen = false;

@@ -22,7 +22,7 @@ public class SemanticSearch(
     }
 
     public async Task<IReadOnlyList<IngestedChunk>> SearchAsync(
-        string text, string ownerId, string? documentIdFilter, int maxResults)
+        string text, string ownerId, IReadOnlyCollection<string>? documentIds, int maxResults)
     {
         if (string.IsNullOrWhiteSpace(ownerId) || string.IsNullOrWhiteSpace(text))
             return [];
@@ -33,7 +33,14 @@ public class SemanticSearch(
         var embedded = await embeddingGenerator.GenerateAsync([text]);
         var query = new Vector(embedded[0].Vector.ToArray());
 
-        var filter = documentIdFilter ?? string.Empty;
+        string[] ids = [];
+        if (documentIds is not null)
+        {
+            ids = documentIds
+                .Where(d => !string.IsNullOrWhiteSpace(d))
+                .Distinct()
+                .ToArray();
+        }
 
         var hits = await db.Database.SqlQuery<Hit>($"""
             WITH vec AS (
@@ -41,7 +48,7 @@ public class SemanticSearch(
                        ROW_NUMBER() OVER (ORDER BY c."Embedding" <=> {query}) AS rank
                 FROM "Chunks" c
                 WHERE c."OwnerId" = {ownerId}
-                  AND ({filter} = '' OR c."DocumentId" = {filter})
+                  AND (cardinality({ids}) = 0 OR c."DocumentId" = ANY({ids}))
                 ORDER BY c."Embedding" <=> {query}
                 LIMIT {CandidateCount}
             ),
@@ -53,7 +60,7 @@ public class SemanticSearch(
                        ) AS rank
                 FROM "Chunks" c
                 WHERE c."OwnerId" = {ownerId}
-                  AND ({filter} = '' OR c."DocumentId" = {filter})
+                  AND (cardinality({ids}) = 0 OR c."DocumentId" = ANY({ids}))
                   AND to_tsvector('simple', c."Text") @@ websearch_to_tsquery('simple', {text})
                 LIMIT {CandidateCount}
             ),
