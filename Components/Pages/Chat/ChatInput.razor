@@ -6,7 +6,6 @@
 <EditForm Model="@this" OnValidSubmit="@SendMessageAsync">
     <label class="input-box page-width">
         <textarea @ref="@textArea" @bind="@messageText"
-                  placeholder="@PlaceholderText"
                   rows="1"></textarea>
 
         @if (AttachedFileCount > 0)
@@ -175,18 +174,6 @@
             if (AttachedFiles is null)
                 return 0;
             return AttachedFiles.Count;
-        }
-    }
-
-    private string PlaceholderText
-    {
-        get
-        {
-            if (AttachedFileCount == 0)
-                return "Hỏi AIDA bất cứ điều gì…";
-            if (AttachedFileCount == 1)
-                return $"Hỏi AIDA về {AttachedFiles![0]}…";
-            return $"Hỏi AIDA về {AttachedFileCount} tài liệu…";
         }
     }
 
