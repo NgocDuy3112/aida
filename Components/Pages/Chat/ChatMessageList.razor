@@ -4,7 +4,7 @@
     <chat-messages class="page-width message-list" in-progress="@(InProgressMessage is not null)">
         @foreach (var message in Messages)
         {
-            <ChatMessageItem @key="@message" Message="@message" />
+            <ChatMessageItem @key="@message" Message="@message" Attachments="@Attachments" />
         }
 
         @if (InProgressMessage is not null)
@@ -47,6 +47,9 @@
 @code {
     [Parameter]
     public required IEnumerable<ChatMessage> Messages { get; set; }
+
+    [Parameter]
+    public IReadOnlyDictionary<ChatMessage, List<string>>? Attachments { get; set; }
 
     [Parameter]
     public ChatMessage? InProgressMessage { get; set; }
