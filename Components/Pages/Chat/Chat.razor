@@ -405,10 +405,7 @@
             var saved = await Documents.SaveAndIngestAsync(stream, file.Name, userId);
             if (!attachedFiles.Contains(saved))
                 attachedFiles.Add(saved);
-            if (attachedFiles.Count == 1)
-                status = $"Đã đính kèm {saved}.";
-            else
-                status = $"Đã đính kèm {attachedFiles.Count} tài liệu.";
+            status = null;
         }
         catch (Exception ex)
         {
