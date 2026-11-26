@@ -62,6 +62,18 @@ docker compose up -d        # app + postgres + redis (all healthchecked)
   `Admin:Emails` receive it automatically at Google login (dev user gets it via
   `/dev-login` in Development).
 
+### Tests — OCR integration test and image smoke check
+
+```sh
+dotnet test                       # 278 tests; the OCR IT self-skips unless AIDA_OCR_IT=1
+./scripts/ocr-it.sh               # OCR IT in a Linux container (podman + dotnet SDK image + tesseract vie/eng)
+./scripts/smoke-ocr.sh [--keep]   # build the app image, check tesseract/vie/aliases inside it, remove it
+```
+
+Both scripts need a container engine (`CONTAINER_ENGINE`, default `podman`); the Tesseract native
+names the NuGet interop expects are aliased from the distro sonames by `scripts/link-tesseract-libs.sh`,
+which is also the step CI (`.github/workflows/ci.yml`) runs before `dotnet test`.
+
 ### Backups — `scripts/backup.sh`
 
 ```sh
