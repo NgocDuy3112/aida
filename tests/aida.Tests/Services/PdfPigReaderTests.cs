@@ -82,7 +82,7 @@ public class PdfPigReaderTests
     }
 
     [Fact]
-    public async Task Too_many_pages_throws_before_any_ocr_runs()
+    public async Task Scanned_pdf_longer_than_the_page_limit_throws_before_any_ocr_runs()
     {
         using var pdf = BuildImageOnlyPdf(pages: 2);
         var engine = new RecordingOcrEngine("text");
@@ -93,6 +93,22 @@ public class PdfPigReaderTests
 
         Assert.Contains("MaxPages", exception.Message);
         Assert.Equal(0, engine.Calls);
+    }
+
+    [Fact]
+    public async Task Text_pdf_longer_than_the_page_limit_is_still_read()
+    {
+        using var pdf = BuildTextPdf(pages: 51);
+        var engine = new RecordingOcrEngine("should not be used");
+        // The default limit is 50 pages: a text PDF past it needs no OCR, so it must still be ingested.
+        var reader = new PdfPigReader(engine, new OcrOptions());
+
+        var document = await reader.ReadAsync(pdf, "long-report.pdf", PdfMediaType);
+
+        Assert.Equal(0, engine.Calls);
+        Assert.Equal(51, document.Sections.Count);
+        var text = string.Join("\n", document.EnumerateContent().Select(c => c.Text));
+        Assert.Contains("page 50 of the quarterly report", text);
     }
 
     [Fact]
@@ -200,8 +216,26 @@ public class PdfPigReaderTests
         Assert.Empty(document.GetPages().Single().Letters);
     }
 
-    private static MemoryStream BuildJpegOnlyPdf()
+    private static MemoryStream BuildTextPdf(int pages)
     {
+        var bytes = Document.Create(container =>
+        {
+            for (var page = 0; page < pages; page++)
+            {
+                var number = page;
+                container.Page(sheet =>
+                {
+                    sheet.Size(PageSizes.A4);
+                    sheet.Margin(1, Unit.Centimetre);
+                    sheet.Content().Text($"This is page {number} of the quarterly report.");
+                });
+            }
+        }).GeneratePdf();
+
+        return new MemoryStream(bytes);
+    }
+
+    private static MemoryStream BuildJpegOnlyPdf()    {
         var bytes = Document.Create(container =>
         {
             container.Page(page =>

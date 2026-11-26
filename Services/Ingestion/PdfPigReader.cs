@@ -29,13 +29,15 @@ internal sealed class PdfPigReader(IPdfOcrEngine? ocrEngine = null, OcrOptions? 
             var token = timeout.Token;
 
             using var pdf = PdfDocument.Open(source);
-            FailIfTooManyPages(pdf.NumberOfPages, identifier);
+            // A text PDF is read page by page without OCR, so the page limit only guards the OCR path:
+            // it fires on the first page that needs OCR, before any OCR work is spent.
+            var ocrPageLimit = new OcrPageLimit(pdf.NumberOfPages, identifier, _ocrOptions);
 
             var document = new IngestionDocument(identifier);
             foreach (var page in pdf.GetPages())
             {
                 token.ThrowIfCancellationRequested();
-                document.Sections.Add(await GetPageSectionAsync(page, identifier, engine, token));
+                document.Sections.Add(await GetPageSectionAsync(page, identifier, engine, ocrPageLimit, token));
             }
             return document;
         }
@@ -54,20 +56,27 @@ internal sealed class PdfPigReader(IPdfOcrEngine? ocrEngine = null, OcrOptions? 
         }
     }
 
-    private void FailIfTooManyPages(int pageCount, string identifier)
+    /// <summary>Refuses a document whose OCR would span more pages than <c>Ocr:MaxPages</c> allows.</summary>
+    private sealed class OcrPageLimit(int pageCount, string identifier, OcrOptions options)
     {
-        if (pageCount <= _ocrOptions.MaxPages)
-        {
-            return;
-        }
+        private bool _checked;
 
-        throw new InvalidOperationException(
-            $"'{identifier}' has {pageCount} pages but Ocr:MaxPages is {_ocrOptions.MaxPages}; " +
-            "split the document or raise the limit.");
+        public void ThrowIfTooManyPages()
+        {
+            if (_checked) return;
+            _checked = true;
+
+            if (pageCount <= options.MaxPages) return;
+
+            throw new InvalidOperationException(
+                $"'{identifier}' has {pageCount} pages but Ocr:MaxPages is {options.MaxPages}; " +
+                "split the document or raise the limit.");
+        }
     }
 
     private async Task<IngestionDocumentSection> GetPageSectionAsync(
-        Page pdfPage, string identifier, IPdfOcrEngine? engine, CancellationToken cancellationToken)
+        Page pdfPage, string identifier, IPdfOcrEngine? engine, OcrPageLimit ocrPageLimit,
+        CancellationToken cancellationToken)
     {
         var section = new IngestionDocumentSection
         {
@@ -76,6 +85,7 @@ internal sealed class PdfPigReader(IPdfOcrEngine? ocrEngine = null, OcrOptions? 
 
         if (engine is not null && pdfPage.Letters.Count < _ocrOptions.MinLettersPerPage)
         {
+            ocrPageLimit.ThrowIfTooManyPages();
             var scanned = await TryReadScannedPageAsync(pdfPage, engine, cancellationToken);
             if (scanned is not null)
             {

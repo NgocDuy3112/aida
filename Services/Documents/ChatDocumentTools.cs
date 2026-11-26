@@ -9,7 +9,10 @@ internal static class ChatDocumentTools
 
     internal static AIFunction CreateReadDocument(string ownerId, IWebHostEnvironment env, OcrOptions ocrOptions)
     {
-        Func<string, Task<string>> read = filename => ReadAsync(ownerId, env, ocrOptions, filename);
+        // The AIFunction runtime fills the CancellationToken parameter from the turn's token, so the
+        // stop button also interrupts an OCR read.
+        Func<string, CancellationToken, Task<string>> read =
+            (filename, ct) => ReadAsync(ownerId, env, ocrOptions, filename, ct);
         return AIFunctionFactory.Create(
             read,
             "read_document",
@@ -48,7 +51,8 @@ internal static class ChatDocumentTools
     }
 
     private static async Task<string> ReadAsync(
-        string ownerId, IWebHostEnvironment env, OcrOptions ocrOptions, string filename)
+        string ownerId, IWebHostEnvironment env, OcrOptions ocrOptions, string filename,
+        CancellationToken cancellationToken)
     {
         var path = DocumentPaths.Resolve(env.ContentRootPath, ownerId, filename);
         if (path is null || !File.Exists(path))
@@ -58,7 +62,7 @@ internal static class ChatDocumentTools
         try
         {
             var reader = new DocumentReader(file.Directory!, ocrOptions: ocrOptions);
-            var document = await reader.ReadAsync(file, file.Name, cancellationToken: CancellationToken.None);
+            var document = await reader.ReadAsync(file, file.Name, cancellationToken: cancellationToken);
             var text = string.Join("\n\n",
                 document.EnumerateContent()
                     .Select(c => c.Text)

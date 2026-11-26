@@ -74,8 +74,25 @@ public class AskUserBrokerTests
     }
 
     [Fact]
-    public async Task Steer_without_a_waiting_question_is_rejected()
+    public async Task Steer_never_leaves_a_lone_surrogate_at_the_cut()
     {
+        var broker = new AskUserBroker();
+        var waiting = broker.AskAsync("Bạn muốn gì?", Options, true, CancellationToken.None);
+
+        // One 'a' before emoji pairs puts a high surrogate on the 200-unit boundary, which the cut must skip.
+        var message = "a" + string.Concat(Enumerable.Repeat("😀", 150));
+
+        Assert.True(broker.TrySteer(message));
+
+        var steered = await waiting;
+        var body = steered[AskUserBroker.SteeredAnswerPrefix.Length..^1];
+        Assert.EndsWith("…", steered);
+        Assert.False(char.IsHighSurrogate(body[^1]));
+        Assert.Equal(199, body.Length);
+    }
+
+    [Fact]
+    public async Task Steer_without_a_waiting_question_is_rejected()    {
         var broker = new AskUserBroker();
 
         Assert.False(broker.TrySteer("Tóm tắt"));

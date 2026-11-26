@@ -97,7 +97,11 @@ internal sealed class AskUserBroker
     {
         var text = message.Trim();
         if (text.Length > SteeredTextLimit)
-            text = text[..SteeredTextLimit] + "…";
+        {
+            // Cutting inside a surrogate pair would leave the model a lone surrogate; drop one more unit.
+            var end = char.IsHighSurrogate(text[SteeredTextLimit - 1]) ? SteeredTextLimit - 1 : SteeredTextLimit;
+            text = text[..end] + "…";
+        }
         return SteeredAnswerPrefix + text;
     }
 
