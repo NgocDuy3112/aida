@@ -12,6 +12,11 @@ internal sealed class AskUserBroker
 {
     internal const string DeclinedAnswer = "user declined to answer";
 
+    internal const string SteeredAnswerPrefix = "user sent a new message instead: ";
+
+    /// <summary>Longer steer messages are cut here so the model sees a signal, not a whole transcript.</summary>
+    private const int SteeredTextLimit = 200;
+
     private sealed class Waiting(AskUserQuestion question)
     {
         public AskUserQuestion Question { get; } = question;
@@ -81,6 +86,20 @@ internal sealed class AskUserBroker
 
     /// <summary>Answers the waiting question with <see cref="DeclinedAnswer"/>.</summary>
     public bool TryDecline() => TryAnswer(DeclinedAnswer);
+
+    /// <summary>
+    /// Answers the waiting question with the message the user sent instead of an answer, so the model
+    /// reads a new instruction rather than a refusal.
+    /// </summary>
+    public bool TrySteer(string message) => TryAnswer(SteeredAnswer(message));
+
+    internal static string SteeredAnswer(string message)
+    {
+        var text = message.Trim();
+        if (text.Length > SteeredTextLimit)
+            text = text[..SteeredTextLimit] + "…";
+        return SteeredAnswerPrefix + text;
+    }
 
     /// <summary>Releases a waiting question by cancelling it, so the tool call does not hang.</summary>
     public void Cancel()

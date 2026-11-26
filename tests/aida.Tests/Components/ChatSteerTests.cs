@@ -1,3 +1,4 @@
+using aida.Services.Agents;
 using Bunit;
 
 namespace aida.Tests.Components;
@@ -5,8 +6,7 @@ namespace aida.Tests.Components;
 /// <summary>
 /// Characterization of the steer path: a message typed while a turn streams is appended to the open
 /// conversation and injected into the running agent session instead of starting a second turn, and it
-/// releases a waiting ask_user question.
-/// (T4 của sprint này sẽ đổi kết quả trả về của TrySteerAsync — test này mô tả hành vi hiện tại.)
+/// answers a waiting ask_user question with the new message instead of a decline.
 /// </summary>
 public class ChatSteerTests
 {
@@ -37,7 +37,7 @@ public class ChatSteerTests
     }
 
     [Fact]
-    public async Task A_message_typed_during_a_turn_declines_the_waiting_question()
+    public async Task A_message_typed_during_a_turn_steers_the_waiting_question_with_its_text()
     {
         using var harness = ChatTestHarness.Render();
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -53,7 +53,10 @@ public class ChatSteerTests
 
         harness.Page.WaitForAssertion(() => Assert.Empty(harness.Page.FindAll(".ask-user-panel")));
         Assert.Null(harness.Broker.Pending);
-        Assert.Equal("user declined to answer", await waiting);
+        var steered = await waiting;
+        Assert.StartsWith(AskUserBroker.SteeredAnswerPrefix, steered);
+        Assert.Contains("Trả lời luôn trong chat", steered);
+        Assert.DoesNotContain(AskUserBroker.DeclinedAnswer, steered);
 
         gate.SetResult();
         await turn;

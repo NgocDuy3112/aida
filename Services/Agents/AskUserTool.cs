@@ -16,7 +16,9 @@ internal static class AskUserTool
         "ngắn bằng tiếng Việt, kèm 1-4 lựa chọn ngắn khi câu trả lời chỉ có vài khả năng. Tool trả về câu trả lời " +
         "của người dùng ngay trong lượt này: chờ kết quả rồi viết tiếp câu trả lời. Có thể hỏi nhiều câu liên tiếp " +
         "nếu cần, nhưng mỗi lần một câu và không hỏi lại điều đã có trong ngữ cảnh. Không viết câu hỏi vào phần " +
-        "trả lời. Nếu có thể trả lời trực tiếp thì không dùng tool này.";
+        "trả lời. Nếu có thể trả lời trực tiếp thì không dùng tool này. Nếu kết quả bắt đầu bằng " +
+        "\"user sent a new message instead:\" thì người dùng đã gửi tin nhắn mới thay vì trả lời: làm theo nội dung " +
+        "tin nhắn đó, đừng coi là người dùng từ chối.";
 
     internal const string MissingQuestionResult = "Error: ask_user needs a 'question'.";
 

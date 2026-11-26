@@ -48,6 +48,41 @@ public class AskUserBrokerTests
     }
 
     [Fact]
+    public async Task Steer_returns_the_new_message_instead_of_a_decline()
+    {
+        var broker = new AskUserBroker();
+        var waiting = broker.AskAsync("Bạn muốn gì?", Options, true, CancellationToken.None);
+
+        Assert.True(broker.TrySteer("  Tóm tắt phần 2  "));
+
+        Assert.Equal("user sent a new message instead: Tóm tắt phần 2", await waiting);
+        Assert.Null(broker.Pending);
+    }
+
+    [Fact]
+    public async Task Steer_truncates_a_message_longer_than_the_limit()
+    {
+        var broker = new AskUserBroker();
+        var waiting = broker.AskAsync("Bạn muốn gì?", Options, true, CancellationToken.None);
+
+        Assert.True(broker.TrySteer(new string('x', 500)));
+
+        var steered = await waiting;
+        Assert.StartsWith(AskUserBroker.SteeredAnswerPrefix, steered);
+        Assert.EndsWith("…", steered);
+        Assert.Equal(AskUserBroker.SteeredAnswerPrefix.Length + 201, steered.Length);
+    }
+
+    [Fact]
+    public async Task Steer_without_a_waiting_question_is_rejected()
+    {
+        var broker = new AskUserBroker();
+
+        Assert.False(broker.TrySteer("Tóm tắt"));
+        await Task.CompletedTask;
+    }
+
+    [Fact]
     public async Task Cancel_releases_a_waiting_question()
     {
         var broker = new AskUserBroker();
@@ -106,6 +141,7 @@ public class AskUserBrokerTests
 
         Assert.False(broker.TryAnswer("Tóm tắt"));
         Assert.False(broker.TryDecline());
+        Assert.False(broker.TrySteer("Tóm tắt"));
         await Task.CompletedTask;
     }
 

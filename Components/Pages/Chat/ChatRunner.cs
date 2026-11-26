@@ -418,7 +418,7 @@ internal sealed class ChatRunner
         // Release a waiting ask_user so the injected message reaches the model instead of hanging.
         if (askUserBroker.Pending is not null)
         {
-            askUserBroker.TryDecline();
+            askUserBroker.TrySteer(question);
             view.ResetAskUserPanel();
         }
         Status = "Đã chuyển yêu cầu vào câu trả lời đang chạy…";
