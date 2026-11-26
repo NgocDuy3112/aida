@@ -39,6 +39,7 @@
     <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.21.0" />
     <PackageReference Include="Pgvector.EntityFrameworkCore" Version="0.3.0" />
     <PackageReference Include="PdfPig" Version="0.1.12" />
+    <PackageReference Include="Tesseract" Version="5.2.0" />
     <PackageReference Include="QuestPDF" Version="2026.9.1" />
     <PackageReference Include="Microsoft.AspNetCore.DataProtection.StackExchangeRedis" Version="10.0.14" />
     <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.14" />

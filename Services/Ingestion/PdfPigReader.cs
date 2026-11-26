@@ -6,25 +6,53 @@ using UglyToad.PdfPig.DocumentLayoutAnalysis.WordExtractor;
 
 namespace aida.Services.Ingestion;
 
-internal sealed class PdfPigReader : IngestionDocumentReader
+internal sealed class PdfPigReader(IPdfOcrEngine? ocrEngine = null, OcrOptions? ocrOptions = null) : IngestionDocumentReader
 {
-    public override Task<IngestionDocument> ReadAsync(Stream source, string identifier, string mediaType, CancellationToken cancellationToken = default)
+    private readonly OcrOptions _ocrOptions = ocrOptions ?? new OcrOptions();
+
+    public override async Task<IngestionDocument> ReadAsync(Stream source, string identifier, string mediaType, CancellationToken cancellationToken = default)
     {
-        using var pdf = PdfDocument.Open(source);
-        var document = new IngestionDocument(identifier);
-        foreach (var page in pdf.GetPages())
+        var ownsEngine = false;
+        var engine = ocrEngine;
+        if (engine is null && _ocrOptions.Enabled)
         {
-            document.Sections.Add(GetPageSection(page));
+            engine = new TesseractOcrEngine(_ocrOptions);
+            ownsEngine = true;
         }
-        return Task.FromResult(document);
+
+        try
+        {
+            using var pdf = PdfDocument.Open(source);
+            var document = new IngestionDocument(identifier);
+            foreach (var page in pdf.GetPages())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                document.Sections.Add(await GetPageSectionAsync(page, identifier, engine, cancellationToken));
+            }
+            return document;
+        }
+        finally
+        {
+            if (ownsEngine)
+            {
+                (engine as IDisposable)?.Dispose();
+            }
+        }
     }
 
-    private static IngestionDocumentSection GetPageSection(Page pdfPage)
+    private async Task<IngestionDocumentSection> GetPageSectionAsync(
+        Page pdfPage, string identifier, IPdfOcrEngine? engine, CancellationToken cancellationToken)
     {
         var section = new IngestionDocumentSection
         {
             PageNumber = pdfPage.Number,
         };
+
+        if (engine is not null && pdfPage.Letters.Count < _ocrOptions.MinLettersPerPage)
+        {
+            section.Elements.Add(await ReadScannedPageAsync(pdfPage, identifier, engine, cancellationToken));
+            return section;
+        }
 
         var letters = pdfPage.Letters;
         var words = NearestNeighbourWordExtractor.Instance.GetWords(letters);
@@ -38,5 +66,39 @@ internal sealed class PdfPigReader : IngestionDocumentReader
         }
 
         return section;
+    }
+
+    private async Task<IngestionDocumentParagraph> ReadScannedPageAsync(
+        Page pdfPage, string identifier, IPdfOcrEngine engine, CancellationToken cancellationToken)
+    {
+        var recognized = new List<string>();
+
+        foreach (var image in pdfPage.GetImages())
+        {
+            if (!image.TryGetPng(out var png) || png is null)
+            {
+                continue;
+            }
+
+            using var imageStream = new MemoryStream(png);
+            var text = await engine.RecognizeAsync(imageStream, _ocrOptions.Language, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                recognized.Add(text);
+            }
+        }
+
+        if (recognized.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"Page {pdfPage.Number} of '{identifier}' has no text layer and no OCR-readable image; " +
+                "the page cannot be ingested.");
+        }
+
+        var pageText = string.Join("\n\n", recognized);
+        return new IngestionDocumentParagraph(pageText)
+        {
+            Text = pageText
+        };
     }
 }
