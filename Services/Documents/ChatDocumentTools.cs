@@ -9,9 +9,9 @@ internal static class ChatDocumentTools
 {
     internal const int MaxReadChars = 60_000;
 
-    internal static AIFunction CreateReadDocument(string ownerId, IWebHostEnvironment env)
+    internal static AIFunction CreateReadDocument(string ownerId, IWebHostEnvironment env, OcrOptions ocrOptions)
     {
-        Func<string, Task<string>> read = filename => ReadAsync(ownerId, env, filename);
+        Func<string, Task<string>> read = filename => ReadAsync(ownerId, env, ocrOptions, filename);
         return AIFunctionFactory.Create(
             read,
             "read_document",
@@ -55,7 +55,7 @@ internal static class ChatDocumentTools
     }
 
     private static async Task<string> ReadAsync(
-        string ownerId, IWebHostEnvironment env, string filename)
+        string ownerId, IWebHostEnvironment env, OcrOptions ocrOptions, string filename)
     {
         var path = DocumentPaths.Resolve(env.ContentRootPath, ownerId, filename);
         if (path is null || !File.Exists(path))
@@ -64,7 +64,7 @@ internal static class ChatDocumentTools
         var file = new FileInfo(path);
         try
         {
-            var reader = new DocumentReader(file.Directory!);
+            var reader = new DocumentReader(file.Directory!, ocrOptions: ocrOptions);
             var document = await reader.ReadAsync(file, file.Name, cancellationToken: CancellationToken.None);
             var text = string.Join("\n\n",
                 document.EnumerateContent()

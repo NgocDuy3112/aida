@@ -1,6 +1,6 @@
 namespace aida.Services.Ingestion;
 
-internal sealed class OcrOptions
+public sealed class OcrOptions
 {
     public const string SectionName = "Ocr";
     public const string DefaultLanguage = "vie+eng";

@@ -9,6 +9,7 @@ namespace aida.Services.Ingestion;
 public class DocumentIngestor(
     IServiceScopeFactory scopeFactory,
     IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
+    OcrOptions ocrOptions,
     ILogger<DocumentIngestor> logger)
 {
     private const int MaxChunkChars = 1200;
@@ -17,7 +18,7 @@ public class DocumentIngestor(
     public async Task<int> IngestAsync(
         FileInfo file, string documentId, string ownerId, CancellationToken ct = default)
     {
-        var reader = new DocumentReader(file.Directory!);
+        var reader = new DocumentReader(file.Directory!, ocrOptions: ocrOptions);
         var document = await reader.ReadAsync(file, documentId, cancellationToken: ct);
 
         var text = string.Join("\n\n", document.EnumerateContent()

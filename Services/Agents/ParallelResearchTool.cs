@@ -1,5 +1,6 @@
 using System.Text;
 using aida.Services.Documents;
+using aida.Services.Ingestion;
 using aida.Services.Usage;
 using Microsoft.Extensions.AI;
 using OpenAI;
@@ -11,6 +12,7 @@ public class ParallelResearchTool(
     IUsageTracker tracker,
     PricingTable pricing,
     IWebHostEnvironment env,
+    OcrOptions ocrOptions,
     ILogger<ParallelResearchTool> logger)
 {
     internal const int MaxWorkers = 3;
@@ -112,7 +114,7 @@ public class ParallelResearchTool(
         ],
         new ChatOptions
         {
-            Tools = [ChatDocumentTools.CreateReadDocument(userId, env)],
+            Tools = [ChatDocumentTools.CreateReadDocument(userId, env, ocrOptions)],
             Reasoning = CrewOptions.Reasoning(thinking),
         },
         ct);
