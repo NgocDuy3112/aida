@@ -1,4 +1,8 @@
+using System.ClientModel;
+using System.ClientModel.Primitives;
+using System.Net;
 using System.Security.Claims;
+using System.Text;
 using aida.Data;
 using aida.Services;
 using aida.Services.Conversations;
@@ -9,8 +13,11 @@ using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Options;
+using OpenAI;
 using Pgvector;
 
 namespace aida.Tests.Components;
@@ -197,6 +204,54 @@ internal sealed class FakeWebHostEnvironment(string contentRoot) : IWebHostEnvir
     public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
     public string ApplicationName { get; set; } = "aida";
     public string EnvironmentName { get; set; } = "Development";
+}
+
+/// <summary>Service wiring shared by the rendered-page tests and the direct <c>ChatRunner</c> tests.</summary>
+internal static class ChatTestServices
+{
+    public static IConfiguration Configuration() =>
+        new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Models:StrongModel"] = "test/strong",
+                ["Models:ModerateModel"] = "test/moderate",
+                ["Models:LightModel"] = "test/light",
+                ["Models:EmbeddingModel"] = "test/embed",
+                ["Crew:DirectorModel"] = "test/director",
+                ["Crew:ResearcherModel"] = "test/researcher",
+                ["Crew:WriterModel"] = "test/writer",
+                ["OpenRouter:ApiKey"] = "test-key",
+                ["OpenRouter:BaseUrl"] = "https://openrouter.test/api/v1",
+                ["OpenRouter:SystemOneEndpoint"] = "https://openrouter.test/api/v1/systemone",
+                ["OpenRouter:SystemOneModel"] = "test/systemone",
+                ["WebSearch:ApiKey"] = "",
+            })
+            .Build();
+
+    public static OpenAIClient OpenAiClient(HttpMessageHandler handler) =>
+        new(
+            new ApiKeyCredential("test-key"),
+            new OpenAIClientOptions
+            {
+                Endpoint = new Uri("https://openrouter.test/api/v1"),
+                Transport = new HttpClientPipelineTransport(new HttpClient(handler)),
+            });
+}
+
+internal sealed class NoScopeFactory : IServiceScopeFactory
+{
+    public IServiceScope CreateScope() =>
+        throw new NotSupportedException("The chat tests never resolve scoped services.");
+}
+
+internal sealed class FailingHttpHandler : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request, CancellationToken cancellationToken) =>
+        Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError)
+        {
+            Content = new StringContent("{}", Encoding.UTF8, "application/json"),
+        });
 }
 
 internal sealed class StubEmbeddingGenerator : IEmbeddingGenerator<string, Embedding<float>>

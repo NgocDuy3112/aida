@@ -1,13 +1,12 @@
 @page "/"
 @attribute [Authorize]
 @using System.Security.Claims
-@using System.Diagnostics
-@using System.Text.RegularExpressions
 @using aida.Services.Ingestion
 @using Microsoft.AspNetCore.Identity
 @using OpenAI
 @using Microsoft.Agents.AI
 @implements IDisposable
+@implements IChatTurnView
 @inject SemanticSearch Search
 @inject OpenAIClient OpenAi
 @inject SystemOneRouter Router
@@ -31,7 +30,7 @@
 <div class="app-shell">
     <ChatSidebar
     @ref="sidebar"
-    ActiveId="conversationId"
+    ActiveId="@chatRunner.ConversationId"
     Open="@sidebarOpen"
     OnSelect="SelectConversationAsync"
     OnNewChat="ResetConversationAsync"
@@ -43,13 +42,13 @@
 
     <main class="chat-main">
         <ChatHeader
-        Title="@title"
-        Model="@activeModel"
+        Title="@chatRunner.Title"
+        Model="@chatRunner.ActiveModel"
         SidebarOpen="@sidebarOpen"
         OnToggleSidebar="() => sidebarOpen = !sidebarOpen"
         />
 
-        <ChatMessageList Messages="@messages" Attachments="@messageAttachments" Editable="@CanEditMessages" OnEditMessage="@EditUserMessageAsync" InProgressMessage="@currentResponseMessage" StreamVersion="@streamVersion" ProcessSteps="@processSteps" Traces="@messageTraces" LastAssistantMessage="@LastAssistantMessage" OnRegenerate="@RegenerateAsync">
+        <ChatMessageList Messages="@chatRunner.Messages" Attachments="@chatRunner.MessageAttachments" Editable="@chatRunner.CanEditMessages" OnEditMessage="@EditUserMessageAsync" InProgressMessage="@chatRunner.CurrentResponseMessage" StreamVersion="@streamVersion" ProcessSteps="@chatRunner.ProcessSteps" Traces="@chatRunner.MessageTraces" LastAssistantMessage="@LastAssistantMessage" OnRegenerate="@RegenerateAsync">
             <NoMessagesContent>
                 <div class="empty-state">
                     <h2>AIDA Agent</h2>
@@ -66,14 +65,14 @@
         </ChatMessageList>
 
         <div class="chat-container">
-            @if (status is not null || (lastResponseFailed && currentResponseMessage is null))
+            @if (chatRunner.Status is not null || (chatRunner.LastResponseFailed && chatRunner.CurrentResponseMessage is null))
             {
                 <div class="status-row">
-                    @if (status is not null)
+                    @if (chatRunner.Status is not null)
                     {
-                        <p class="status">@status</p>
+                        <p class="status">@chatRunner.Status</p>
                     }
-                    @if (lastResponseFailed && currentResponseMessage is null)
+                    @if (chatRunner.LastResponseFailed && chatRunner.CurrentResponseMessage is null)
                     {
                         <button type="button" class="status-retry" @onclick="RegenerateAsync">Thử lại</button>
                     }
@@ -111,11 +110,11 @@
             <ChatInput
             OnSend="@AddUserMessageAsync"
             OnFileSelected="@UploadAsync"
-            AttachedFiles="@attachedFiles"
+            AttachedFiles="@chatRunner.AttachedFiles"
             OnRemoveFile="@RemoveAttachedFile"
             @bind-PinnedModel="pinnedModel"
-            StatusChanged="@((string? s) => status = s)"
-            IsStreaming="@(currentResponseMessage is not null)"
+            StatusChanged="@((string? s) => chatRunner.Status = s)"
+            IsStreaming="@(chatRunner.CurrentResponseMessage is not null)"
             OnStop="@CancelAnyCurrentResponse"
             @ref="@chatInput"
             />
@@ -124,11 +123,7 @@
 </div>
 
 @code {
-    private readonly List<ChatMessage> messages = new();
-    private readonly Dictionary<ChatMessage, List<string>> messageAttachments = [];
-    private CancellationTokenSource? currentResponseCancellation;
-    private ChatMessage? currentResponseMessage;
-    private int turnEpoch;
+    private ChatRunner chatRunner = null!;
     private ElementReference askUserInput;
     private bool focusAskUserInput;
     private ChatInput? chatInput;
@@ -137,28 +132,11 @@
     private List<string> pendingOptions = [];
     private string? pendingAnswer;
     private bool pendingAllowFreeText = true;
-    private bool lastResponseFailed;
 
-    private string userId = string.Empty;
-    private Guid? conversationId;
-    private string? title;
-    private readonly List<string> attachedFiles = [];
-    private string? status;
-    private string? pendingQuestion;
-
-    private bool CanEditMessages => currentResponseMessage is null;
-    private string systemPrompt = string.Empty;
     private string? pinnedModel;
-    private string? activeModel;
     private int streamVersion;
     private bool sidebarOpen;
-    private CrewState crew = null!;
-
-    private readonly List<string> processSteps = [];
-    private readonly Dictionary<ChatMessage, ProcessTrace> messageTraces = [];
-    private readonly StreamRenderThrottle streamRenderThrottle =
-        new(StreamRenderThrottle.DefaultInterval);
-    private readonly Stopwatch streamClock = Stopwatch.StartNew();
+    private string? pendingQuestion;
 
     private static readonly string[] EmptyStatePrompts =
     [
@@ -172,17 +150,35 @@
     {
         get
         {
-            if (currentResponseMessage is not null)
+            if (chatRunner.CurrentResponseMessage is not null)
                 return null;
 
-            for (var i = messages.Count - 1; i >= 1; i--)
+            for (var i = chatRunner.Messages.Count - 1; i >= 1; i--)
             {
-                if (messages[i].Role == ChatRole.Assistant && !string.IsNullOrWhiteSpace(messages[i].Text))
-                    return messages[i];
+                if (chatRunner.Messages[i].Role == ChatRole.Assistant && !string.IsNullOrWhiteSpace(chatRunner.Messages[i].Text))
+                    return chatRunner.Messages[i];
             }
             return null;
         }
     }
+
+    string? IChatTurnView.PinnedModel => pinnedModel;
+
+    Task IChatTurnView.RenderAsync() => InvokeAsync(StateHasChanged);
+
+    async Task IChatTurnView.RenderStreamAsync()
+    {
+        streamVersion++;
+        if (chatRunner.CurrentResponseMessage is not null)
+            ChatMessageItem.NotifyChanged(chatRunner.CurrentResponseMessage);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    Task IChatTurnView.FocusComposerAsync() => chatInput!.FocusAsync().AsTask();
+
+    Task IChatTurnView.ReloadSidebarAsync() => sidebar!.ReloadAsync();
+
+    void IChatTurnView.ResetAskUserPanel() => ResetPendingQuestion();
 
     /// <summary>The ask_user tool is awaiting this answer inside the running turn.</summary>
     private void AnswerQuestion(string answer)
@@ -250,617 +246,155 @@
         }
     }
 
-    private void AddStep(string step)
-    {
-        if (processSteps.Count == 0 || processSteps[^1] != step)
-            processSteps.Add(step);
-    }
-
     protected override async Task OnInitializedAsync()
     {
-        systemPrompt = File.ReadAllText(
+        var systemPrompt = File.ReadAllText(
             Path.Combine(Env.ContentRootPath, "prompts", "SYSTEM.md"));
+
+        chatRunner = new ChatRunner(
+            this, Logger, Store, Search, Router, Config, OpenAi, Documents, Env,
+            RateLimiter, UsageTracker, Pricing, ResearchTools, CrewWriter, WebSearch, Ocr,
+            askUserBroker);
 
         askUserBroker.Changed += OnAskUserChanged;
 
         var state = await AuthState.GetAuthenticationStateAsync();
-        userId = state.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
+        var userId = state.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
         var appUser = await UserManager.FindByIdAsync(userId);
-        crew = AgentSettings.Load(appUser, Config);
-        messages.Add(new(ChatRole.System, systemPrompt));
+        chatRunner.Initialize(userId, AgentSettings.Load(appUser, Config), systemPrompt);
     }
 
     private Task AddUserMessageAsync(ChatMessage userMessage)
-        => ProcessUserMessageAsync(userMessage, true);
+        => chatRunner.ProcessUserMessageAsync(userMessage, true);
 
     private async Task EditUserMessageAsync((ChatMessage Message, string Text) edit)
     {
         var original = edit.Message;
         var newText = edit.Text;
 
-        if (conversationId is null || string.IsNullOrWhiteSpace(userId)) return;
-        if (currentResponseMessage is not null) return;
+        if (chatRunner.ConversationId is null || string.IsNullOrWhiteSpace(chatRunner.UserId)) return;
+        if (chatRunner.CurrentResponseMessage is not null) return;
 
-        var index = messages.IndexOf(original);
+        var index = chatRunner.Messages.IndexOf(original);
         if (index < 1) return;
 
         var trimmed = newText.Trim();
         if (trimmed.Length == 0) return;
         if (string.Equals(trimmed, original.Text, StringComparison.Ordinal)) return;
 
-        for (var i = messages.Count - 1; i > index; i--)
+        for (var i = chatRunner.Messages.Count - 1; i > index; i--)
         {
-            messageAttachments.Remove(messages[i]);
-            messages.RemoveAt(i);
+            chatRunner.MessageAttachments.Remove(chatRunner.Messages[i]);
+            chatRunner.Messages.RemoveAt(i);
         }
-        await Store.DeleteMessagesFromAsync(conversationId.Value, userId, index + 1);
+        await Store.DeleteMessagesFromAsync(chatRunner.ConversationId.Value, chatRunner.UserId, index + 1);
 
         var text = original.Contents.OfType<TextContent>().FirstOrDefault();
         if (text is null) return;
         text.Text = trimmed;
-        await Store.UpdateMessageAsync(conversationId.Value, userId, index, trimmed);
+        await Store.UpdateMessageAsync(chatRunner.ConversationId.Value, chatRunner.UserId, index, trimmed);
 
-        agentRuns.Remove(conversationId.Value);
+        chatRunner.ForgetRun(chatRunner.ConversationId.Value);
         ChatMessageItem.NotifyChanged(original);
         streamVersion++;
         await InvokeAsync(StateHasChanged);
 
-        await ProcessUserMessageAsync(original, false);
-    }
-
-    private async Task<bool> TrySteerAsync(ChatMessage userMessage)
-    {
-        if (currentResponseMessage is null) return false;
-        if (conversationId is null) return false;
-        if (!agentRuns.TryGetValue(conversationId.Value, out var activeRun)) return false;
-
-        var question = userMessage.Text ?? string.Empty;
-        messages.Add(userMessage);
-        if (attachedFiles.Count > 0)
-            messageAttachments[userMessage] = new List<string>(attachedFiles);
-        await Store.AppendAsync(conversationId.Value, userId, "user", question);
-
-        await activeRun.Injector.EnqueueMessagesAsync(
-            activeRun.Session, [userMessage], CancellationToken.None);
-        // Release a waiting ask_user so the injected message reaches the model instead of hanging.
-        if (askUserBroker.Pending is not null)
-        {
-            askUserBroker.TryDecline();
-            ResetPendingQuestion();
-        }
-        status = "Đã chuyển yêu cầu vào câu trả lời đang chạy…";
-        return true;
-    }
-
-    private async Task ProcessUserMessageAsync(ChatMessage userMessage, bool append)
-    {
-        if (string.IsNullOrWhiteSpace(userId)) return;
-
-        if (!await RateLimiter.TryAcquireAsync(userId))
-        {
-            status = "Bạn gửi tin quá nhanh — đợi một lát rồi thử lại.";
-            return;
-        }
-
-        ChatMessage? myResponse = null;
-        TextContent? responseText = null;
-        var usedModel = "unknown";
-        var toolCalls = 0;
-        var llmClock = Stopwatch.StartNew();
-        // A turn owns conversationId and messages until it is replaced. Stopping the turn, switching
-        // conversation, starting a new chat or starting the next turn bumps turnEpoch, so the late writes
-        // of an old turn (after many awaits) are dropped instead of landing in the new conversation.
-        Guid? turnConversation = null;
-        int? turnEpochAtStart = null;
-        bool IsTurnActive() =>
-            myResponse is not null
-            && turnEpochAtStart == turnEpoch
-            && conversationId is not null
-            && conversationId == turnConversation;
-        try
-        {
-            await EnsureConversationAsync();
-
-            if (await TrySteerAsync(userMessage)) return;
-
-            CancelAnyCurrentResponse();
-            turnConversation = conversationId;
-            turnEpochAtStart = turnEpoch;
-
-            var question = userMessage.Text ?? string.Empty;
-            if (append)
-            {
-                messages.Add(userMessage);
-                if (attachedFiles.Count > 0)
-                    messageAttachments[userMessage] = new List<string>(attachedFiles);
-                await Store.AppendAsync(turnConversation!.Value, userId, "user", question);
-            }
-
-            status = null;
-            lastResponseFailed = false;
-            processSteps.Clear();
-            ResetPendingQuestion();
-            AddStep("Đang suy nghĩ…");
-            await chatInput!.FocusAsync();
-
-
-            var modelTask = pinnedModel is not null
-                ? Task.FromResult(pinnedModel)
-                : Router.PickChatModelAsync(question);
-            var hitsTask = Task.FromResult<IReadOnlyList<IngestedChunk>>([]);
-            var searchScope = BuildSearchScope(question);
-            if (searchScope.Count > 0)
-                hitsTask = Search.SearchAsync(question, userId, searchScope, maxResults: 6);
-
-            await Task.WhenAll(modelTask, hitsTask);
-
-            var model = await modelTask;
-            usedModel = model;
-            activeModel = model;
-            var modelSource = "router";
-            if (pinnedModel is not null)
-                modelSource = "pinned";
-            Logger.LogInformation(
-                "Answering with {Model} ({Source})",
-                model,
-                modelSource);
-            var hits = await hitsTask;
-            if (hits.Count > 0)
-                AddStep($"Đã tìm {hits.Count} đoạn");
-            var prompt = BuildPrompt(question, hits, attachedFiles);
-
-            responseText = new TextContent("");
-            myResponse = new ChatMessage(ChatRole.Assistant, [responseText]);
-            currentResponseMessage = myResponse;
-            currentResponseCancellation?.Dispose();
-            currentResponseCancellation = new();
-            await InvokeAsync(StateHasChanged);
-
-            var (harness, session, sessionFresh) = await GetAgentRunAsync(turnConversation!.Value, model);
-
-            var currentContents = new List<AIContent> { new TextContent(prompt) };
-            currentContents.AddRange(messages[^1].Contents.OfType<DataContent>());
-            var currentMessage = new ChatMessage(ChatRole.User, currentContents);
-            var agentInput = BuildAgentInput(sessionFresh, currentMessage);
-
-            streamRenderThrottle.Reset();
-            streamClock.Restart();
-            await foreach (var update in harness.RunStreamingAsync(
-                agentInput, session, cancellationToken: currentResponseCancellation.Token))
-            {
-                await ProcessUpdateAsync(update.Text, update.Contents);
-            }
-            streamClock.Stop();
-            await RenderStreamAsync();
-
-            llmClock.Stop();
-            // The stream can finish while the user is stopping the turn or moving to another
-            // conversation; CancelAnyCurrentResponse already kept the partial bubble in that case.
-            if (!IsTurnActive()) return;
-
-            askUserBroker.Cancel();
-            ResetPendingQuestion();
-            RecordTrace(myResponse!, toolCalls);
-            messages.Add(myResponse!);
-            currentResponseMessage = null;
-
-            if (!string.IsNullOrWhiteSpace(responseText!.Text))
-            {
-                await Store.AppendAsync(turnConversation!.Value, userId, "assistant", responseText.Text);
-                // Re-check after the write; the title request re-checks again after its own await.
-                if (IsTurnActive())
-                {
-                    AttachGeneratedDocuments(responseText.Text);
-                    await MaybeGenerateTitleAsync(turnConversation!.Value, question, responseText.Text);
-                }
-            }
-
-            if (IsTurnActive())
-                await sidebar!.ReloadAsync();
-        }
-        catch (OperationCanceledException)
-        {
-            if (IsTurnActive())
-            {
-                askUserBroker.Cancel();
-                ResetPendingQuestion();
-                AddResponseIfAnswered(myResponse!, toolCalls);
-                currentResponseMessage = null;
-            }
-
-            llmClock.Stop();
-            _ = UsageTracker.RecordAsync(new UsageEvent
-            {
-                UserId = userId,
-                Model = usedModel,
-                Mode = "agent",
-                DurationMs = llmClock.ElapsedMilliseconds,
-                ToolCalls = toolCalls,
-                Error = "cancelled",
-            });
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to answer message.");
-            status = "Đã có lỗi khi trả lời. Vui lòng thử lại.";
-            lastResponseFailed = true;
-            if (IsTurnActive())
-            {
-                askUserBroker.Cancel();
-                ResetPendingQuestion();
-                AddResponseIfAnswered(myResponse!, toolCalls);
-                currentResponseMessage = null;
-            }
-
-            llmClock.Stop();
-            _ = UsageTracker.RecordAsync(new UsageEvent
-            {
-                UserId = userId,
-                Model = usedModel,
-                Mode = "agent",
-                DurationMs = llmClock.ElapsedMilliseconds,
-                ToolCalls = toolCalls,
-                Error = ex.Message,
-            });
-        }
-
-        async Task ProcessUpdateAsync(string? text, IList<AIContent> contents)
-        {
-            var changed = false;
-
-            foreach (var item in contents)
-            {
-                if (item is FunctionCallContent call)
-                {
-                    toolCalls++;
-                    Logger.LogDebug("FunctionCall: {Name} args={Args}",
-                        call.Name, System.Text.Json.JsonSerializer.Serialize(call.Arguments));
-                    // ask_user gets its own banner and takes the focus there; the others are a process step.
-                    if (call.Name != AskUserTool.Name)
-                        AddStep($"Dùng {call.Name.Replace('_', ' ')}");
-                    changed = true;
-                }
-            }
-
-            if (!string.IsNullOrEmpty(text))
-            {
-                responseText!.Text += text;
-                AddStep("Đang tạo");
-                changed = true;
-            }
-
-            // Tokens keep accumulating above; the UI only re-renders on the throttle tick.
-            if (changed && streamRenderThrottle.TryAcquire(streamClock.ElapsedMilliseconds))
-                await RenderStreamAsync();
-        }
-    }
-
-    private async Task RenderStreamAsync()
-    {
-        streamVersion++;
-        if (currentResponseMessage is not null)
-            ChatMessageItem.NotifyChanged(currentResponseMessage);
-        await InvokeAsync(StateHasChanged);
-    }
-
-    private void AddResponseIfAnswered(ChatMessage response, int toolCalls)
-    {
-        if (string.IsNullOrWhiteSpace(response.Text)) return;
-        RecordTrace(response, toolCalls);
-        messages.Add(response);
-    }
-
-    private void RecordTrace(ChatMessage response, int toolCalls)
-    {
-        if (toolCalls == 0 || string.IsNullOrWhiteSpace(response.Text)) return;
-        messageTraces[response] = new ProcessTrace(toolCalls, [.. processSteps]);
-    }
-
-    private List<string> BuildSearchScope(string question)
-    {
-        var scope = new List<string>(attachedFiles);
-        var documentsDir = Path.Combine(Env.ContentRootPath, "App_Data", "documents", userId);
-        if (Directory.Exists(documentsDir))
-        {
-            foreach (var path in Directory.EnumerateFiles(documentsDir))
-            {
-                var name = Path.GetFileName(path);
-                if (scope.Contains(name))
-                    continue;
-                if (question.Contains(name, StringComparison.OrdinalIgnoreCase))
-                    scope.Add(name);
-            }
-        }
-        return scope;
-    }
-
-    private static string BuildPrompt(
-        string question, IReadOnlyList<IngestedChunk> hits, IReadOnlyList<string> attachedFiles)
-    {
-        var parts = new List<string>();
-
-        if (attachedFiles.Count > 0)
-        {
-            parts.Add("<attached-files>\n" + string.Join("\n", attachedFiles) + "\n</attached-files>");
-        }
-
-        if (hits.Count > 0)
-        {
-            var context = string.Join("\n", hits.Select(h =>
-                $"<result filename=\"{h.DocumentId}\">{h.Text}</result>"));
-            parts.Add("<context>\n" + context + "\n</context>");
-        }
-
-        parts.Add($"Question: {question}");
-        return string.Join("\n\n", parts);
-    }
-
-    private readonly Dictionary<string, IChatClient> chatClients = [];
-
-    private sealed record AgentRun(HarnessAgent Agent, AgentSession Session, string Model, CrewState Crew, MessageInjectingChatClient Injector);
-
-    private readonly Dictionary<Guid, AgentRun> agentRuns = [];
-
-    private IChatClient CreateChatClient(string model)
-    {
-        if (!chatClients.TryGetValue(model, out var client))
-        {
-            client = OpenAi.GetChatClient(model).AsIChatClient();
-            chatClients[model] = client;
-        }
-        return client;
-    }
-
-    private async Task<(HarnessAgent Agent, AgentSession Session, bool Fresh)> GetAgentRunAsync(
-        Guid conversationId, string model)
-    {
-        if (agentRuns.TryGetValue(conversationId, out var existing)
-            && existing.Model == model && existing.Crew == crew)
-            return (existing.Agent, existing.Session, false);
-
-        var reporting = new UsageReportingChatClient(
-            OpenAi.GetChatClient(model).AsIChatClient(),
-            UsageTracker, Pricing, userId, model, "agent");
-
-        var tools = BuildAgentTools(model);
-        Logger.LogInformation("Agent tools: {Tools}",
-            string.Join(", ", tools.OfType<AIFunctionDeclaration>().Select(t => t.Name)));
-
-        var harnessInstructions = systemPrompt + "\n" + AskUserTool.Instructions;
-        Logger.LogDebug("Instructions tail: {Tail}", harnessInstructions[^220..]);
-
-        var injecting = new MessageInjectingChatClient(reporting);
-        var agent = injecting
-            .AsHarnessAgent(new HarnessAgentOptions
-            {
-                Name = "Agent nghiên cứu tài liệu",
-                HarnessInstructions = harnessInstructions,
-                MaximumIterationsPerRequest = 12,
-                DisableWebSearch = true,
-                DisableFileMemory = true,
-                DisableAgentModeProvider = true,
-                ChatOptions = new ChatOptions
-                {
-                    Tools = tools,
-                    Reasoning = CrewOptions.Reasoning(crew.DirectorThinking),
-                },
-            });
-
-        var session = await agent.CreateSessionAsync();
-        agentRuns[conversationId] = new AgentRun(agent, session, model, crew, injecting);
-        return (agent, session, true);
-    }
-
-    private List<ChatMessage> BuildAgentInput(bool sessionFresh, ChatMessage currentMessage)
-    {
-        if (!sessionFresh)
-        {
-            return [currentMessage];
-        }
-
-        var history = messages
-            .Take(messages.Count - 1)
-            .Where(m => m.Role != ChatRole.System)
-            .Where(m => !string.IsNullOrWhiteSpace(m.Text))
-            .TakeLast(8)
-            .Select(m => new ChatMessage(m.Role, TruncateForHistory(m.Text)))
-            .ToList();
-
-        history.Add(currentMessage);
-        return history;
-    }
-
-    private static string TruncateForHistory(string text)
-    {
-        if (text.Length <= 1500)
-        {
-            return text;
-        }
-        return text[..1500] + " …";
-    }
-
-    private List<AITool> BuildAgentTools(string model)
-    {
-        var search = WebSearch.Create();
-
-        List<AITool> tools =
-        [
-            ChatDocumentTools.CreateReadDocument(userId, Env, Ocr),
-            ChatDocumentTools.CreateSaveDocument(userId, Documents),
-            ResearchTools.Create(userId, crew.ResearcherModel, crew.ResearcherThinking),
-            CrewWriter.Create(userId, crew.WriterModel, crew.WriterThinking),
-            AskUserTool.Create(askUserBroker),
-            // The catalog must not advertise web_search when no key is configured and the tool is absent.
-            ToolSearchTool.Create(includeWebSearch: search is not null),
-        ];
-
-        if (search is not null) tools.Add(search);
-
-        return tools;
+        await chatRunner.ProcessUserMessageAsync(original, false);
     }
 
     private async Task UploadAsync(IBrowserFile file)
     {
-        if (string.IsNullOrWhiteSpace(userId)) return;
+        if (string.IsNullOrWhiteSpace(chatRunner.UserId)) return;
 
-        if (!attachedFiles.Contains(file.Name))
+        if (!chatRunner.AttachedFiles.Contains(file.Name))
         {
-            attachedFiles.Add(file.Name);
+            chatRunner.AttachedFiles.Add(file.Name);
             await InvokeAsync(StateHasChanged);
         }
 
         try
         {
-            status = $"Đang đọc {file.Name}…";
+            chatRunner.Status = $"Đang đọc {file.Name}…";
             await using var stream = file.OpenReadStream(maxAllowedSize: 25 * 1024 * 1024);
-            await Documents.SaveAndIngestAsync(stream, file.Name, userId);
-            status = null;
+            await Documents.SaveAndIngestAsync(stream, file.Name, chatRunner.UserId);
+            chatRunner.Status = null;
         }
         catch (Exception ex)
         {
-            attachedFiles.Remove(file.Name);
-            status = $"Không đọc được file đó: {ex.Message}";
+            chatRunner.AttachedFiles.Remove(file.Name);
+            chatRunner.Status = $"Không đọc được file đó: {ex.Message}";
         }
     }
 
     private void RemoveAttachedFile(string name)
     {
-        attachedFiles.Remove(name);
-        status = null;
-    }
-
-    private void AttachGeneratedDocuments(string responseText)
-    {
-        foreach (Match match in Regex.Matches(responseText, "/documents/([^)\\]\\s\"']+)"))
-        {
-            var name = Uri.UnescapeDataString(match.Groups[1].Value);
-            if (!attachedFiles.Contains(name))
-                attachedFiles.Add(name);
-        }
-    }
-
-    private async Task EnsureConversationAsync()
-    {
-        if (conversationId is not null) return;
-        var created = await Store.CreateAsync(userId);
-        conversationId = created.Id;
-        title = created.Title;
-    }
-
-    private async Task MaybeGenerateTitleAsync(Guid conversation, string question, string answer)
-    {
-        if (title is not null && title != "Chat mới") return;
-
-        var fallback = question.Length > 60 ? question[..60] : question;
-        var generated = fallback;
-
-        try
-        {
-            var lightModel = Config["Models:LightModel"]!;
-            var client = CreateChatClient(lightModel);
-            var response = await client.GetResponseAsync(
-                $"Give a 3-5 word title for a conversation that starts with: {question}");
-            var candidate = response.Text?.Trim().Trim('"', '.', '\n');
-            if (!string.IsNullOrWhiteSpace(candidate) && candidate.Length <= 60)
-                generated = candidate;
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex, "Title generation failed — using fallback title '{Title}'.", generated);
-        }
-
-        // The title request can outlive the turn: never rename (or relabel the header of) whatever
-        // conversation is on screen by then.
-        if (conversationId != conversation) return;
-
-        title = generated;
-        await Store.RenameAsync(conversation, userId, generated);
+        chatRunner.AttachedFiles.Remove(name);
+        chatRunner.Status = null;
     }
 
     private async Task SelectConversationAsync(Guid id)
     {
-        if (string.IsNullOrWhiteSpace(userId) || id == conversationId) return;
+        if (string.IsNullOrWhiteSpace(chatRunner.UserId) || id == chatRunner.ConversationId) return;
 
-        CancelAnyCurrentResponse();
+        chatRunner.CancelCurrentResponse();
 
-        var rows = await Store.LoadMessagesAsync(id, userId);
-        var list = await Store.ListAsync(userId);
+        var rows = await Store.LoadMessagesAsync(id, chatRunner.UserId);
+        var list = await Store.ListAsync(chatRunner.UserId);
         var summary = list.FirstOrDefault(c => c.Id == id);
 
-        messages.Clear();
-        messages.Add(new(ChatRole.System, systemPrompt));
+        chatRunner.ResetTranscript();
         foreach (var row in rows)
         {
-            messages.Add(new ChatMessage(
+            chatRunner.Messages.Add(new ChatMessage(
                 row.Role == "assistant" ? ChatRole.Assistant : ChatRole.User, row.Text));
         }
 
-        conversationId = id;
-        title = summary?.Title;
-        status = null;
+        chatRunner.ConversationId = id;
+        chatRunner.Title = summary?.Title;
+        chatRunner.ResetTransientState();
         ResetPendingQuestion();
-        lastResponseFailed = false;
-        activeModel = null;
-        messageTraces.Clear();
-        processSteps.Clear();
         sidebarOpen = false;
         await sidebar!.ReloadAsync();
         await chatInput!.FocusAsync();
     }
 
-    private void CancelAnyCurrentResponse()
-    {
-        // Invalidates the running turn so its late writes and catch handlers stay away from the
-        // conversation that replaces it.
-        turnEpoch++;
-        // Releases a tool call waiting on the user, so a stopped turn cannot hang the session.
-        askUserBroker.Cancel();
-        ResetPendingQuestion();
-        if (currentResponseMessage is not null && !string.IsNullOrWhiteSpace(currentResponseMessage.Text))
-            messages.Add(currentResponseMessage);
-        currentResponseCancellation?.Cancel();
-        currentResponseMessage = null;
-    }
+    private void CancelAnyCurrentResponse() => chatRunner.CancelCurrentResponse();
 
     /// <summary>Re-runs the last user question after dropping the assistant replies that followed it.</summary>
     private async Task RegenerateAsync()
     {
-        if (currentResponseMessage is not null) return;
-        if (conversationId is null || string.IsNullOrWhiteSpace(userId)) return;
+        if (chatRunner.CurrentResponseMessage is not null) return;
+        if (chatRunner.ConversationId is null || string.IsNullOrWhiteSpace(chatRunner.UserId)) return;
 
+        var messages = chatRunner.Messages;
         var lastUserIndex = messages.FindLastIndex(
             m => m.Role == ChatRole.User && !string.IsNullOrWhiteSpace(m.Text));
         if (lastUserIndex < 1) return;
 
         for (var i = messages.Count - 1; i > lastUserIndex; i--)
         {
-            messageAttachments.Remove(messages[i]);
-            messageTraces.Remove(messages[i]);
+            chatRunner.MessageAttachments.Remove(messages[i]);
+            chatRunner.MessageTraces.Remove(messages[i]);
             messages.RemoveAt(i);
         }
-        await Store.DeleteMessagesFromAsync(conversationId.Value, userId, lastUserIndex + 1);
+        await Store.DeleteMessagesFromAsync(chatRunner.ConversationId.Value, chatRunner.UserId, lastUserIndex + 1);
 
-        agentRuns.Remove(conversationId.Value);
+        chatRunner.ForgetRun(chatRunner.ConversationId.Value);
         streamVersion++;
         await InvokeAsync(StateHasChanged);
 
-        await ProcessUserMessageAsync(messages[lastUserIndex], false);
+        await chatRunner.ProcessUserMessageAsync(messages[lastUserIndex], false);
     }
 
     private async Task ResetConversationAsync()
     {
-        CancelAnyCurrentResponse();
-        messages.Clear();
-        messages.Add(new(ChatRole.System, systemPrompt));
-        conversationId = null;
+        chatRunner.CancelCurrentResponse();
+        chatRunner.ResetTranscript();
+        chatRunner.ConversationId = null;
         pinnedModel = null;
-        title = null;
-        status = null;
+        chatRunner.Title = null;
+        chatRunner.ResetTransientState();
         ResetPendingQuestion();
-        lastResponseFailed = false;
-        activeModel = null;
-        messageTraces.Clear();
-        processSteps.Clear();
         sidebarOpen = false;
         if (sidebar is not null) await sidebar.ReloadAsync();
         if (chatInput is not null) await chatInput.FocusAsync();
@@ -869,8 +403,6 @@
     public void Dispose()
     {
         askUserBroker.Changed -= OnAskUserChanged;
-        askUserBroker.Cancel();
-        currentResponseCancellation?.Cancel();
-        currentResponseCancellation?.Dispose();
+        chatRunner?.Dispose();
     }
 }

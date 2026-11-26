@@ -1,5 +1,3 @@
-using System.ClientModel;
-using System.ClientModel.Primitives;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -22,7 +20,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using OpenAI;
 
 namespace aida.Tests.Components;
 
@@ -48,8 +45,11 @@ internal sealed class ChatTestHarness : IDisposable
     public FakeConversationStore Store { get; }
     public ModelScripts Models { get; }
 
-    /// <summary>The component's private message list, i.e. what the UI shows for the open conversation.</summary>
-    public List<ChatMessage> Messages => Field<List<ChatMessage>>("messages");
+    /// <summary>The runner that owns the turn state the page renders.</summary>
+    public ChatRunner Runner => Field<ChatRunner>("chatRunner");
+
+    /// <summary>The open transcript, i.e. what the UI shows for the open conversation.</summary>
+    public List<ChatMessage> Messages => Runner.Messages;
 
     public T Field<T>(string name) =>
         (T)typeof(Chat).GetField(name, System.Reflection.BindingFlags.NonPublic
@@ -61,7 +61,7 @@ internal sealed class ChatTestHarness : IDisposable
 
     public AskUserBroker Broker => Field<AskUserBroker>("askUserBroker");
 
-    public Guid? ConversationId => Field<Guid?>("conversationId");
+    public Guid? ConversationId => Runner.ConversationId;
 
     public static string ContentRoot
     {
@@ -91,9 +91,9 @@ internal sealed class ChatTestHarness : IDisposable
         var rateLimiter = new FakeRateLimiter();
         var usage = new FakeUsageTracker();
         var userManager = new FakeUserManager();
-        var config = BuildConfiguration();
+        var config = ChatTestServices.Configuration();
         var environment = new FakeWebHostEnvironment(ContentRoot);
-        var openAi = CreateOpenAiClient(new ScriptedHttpHandler(models));
+        var openAi = ChatTestServices.OpenAiClient(new ScriptedHttpHandler(models));
 
         context.Services.AddSingleton<IConfiguration>(config);
         context.Services.AddSingleton(store);
@@ -129,34 +129,6 @@ internal sealed class ChatTestHarness : IDisposable
         return new ChatTestHarness(context, page, store, models);
     }
 
-    private static IConfiguration BuildConfiguration() =>
-        new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Models:StrongModel"] = "test/strong",
-                ["Models:ModerateModel"] = "test/moderate",
-                ["Models:LightModel"] = "test/light",
-                ["Models:EmbeddingModel"] = "test/embed",
-                ["Crew:DirectorModel"] = "test/director",
-                ["Crew:ResearcherModel"] = "test/researcher",
-                ["Crew:WriterModel"] = "test/writer",
-                ["OpenRouter:ApiKey"] = "test-key",
-                ["OpenRouter:BaseUrl"] = "https://openrouter.test/api/v1",
-                ["OpenRouter:SystemOneEndpoint"] = "https://openrouter.test/api/v1/systemone",
-                ["OpenRouter:SystemOneModel"] = "test/systemone",
-                ["WebSearch:ApiKey"] = "",
-            })
-            .Build();
-
-    private static OpenAIClient CreateOpenAiClient(HttpMessageHandler handler) =>
-        new(
-            new ApiKeyCredential("test-key"),
-            new OpenAIClientOptions
-            {
-                Endpoint = new Uri("https://openrouter.test/api/v1"),
-                Transport = new HttpClientPipelineTransport(new HttpClient(handler)),
-            });
-
     /// <summary>Starts the composer's send callback, exactly like the user pressing Enter.</summary>
     public Task SendAsync(string text) =>
         Page.FindComponent<ChatInput>().Instance.OnSend.InvokeAsync(new ChatMessage(ChatRole.User, text));
@@ -182,22 +154,6 @@ internal sealed class ChatTestHarness : IDisposable
         [.. Messages.Where(m => m.Role == ChatRole.User).Select(m => m.Text ?? string.Empty)];
 
     public void Dispose() => Context.Dispose();
-
-    private sealed class NoScopeFactory : IServiceScopeFactory
-    {
-        public IServiceScope CreateScope() =>
-            throw new NotSupportedException("The chat component never resolves scoped services in these tests.");
-    }
-
-    private sealed class FailingHttpHandler : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request, CancellationToken cancellationToken) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError)
-            {
-                Content = new StringContent("{}", Encoding.UTF8, "application/json"),
-            });
-    }
 }
 
 /// <summary>One request the component sent to the model: the title call, or a chat turn.</summary>
