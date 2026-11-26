@@ -100,7 +100,7 @@
                     <form class="ask-user-form" @onsubmit="SubmitPendingAnswerAsync" @onsubmit:preventDefault>
                         @if (pendingAllowFreeText)
                         {
-                            <input class="ask-user-input" @bind="pendingAnswer"
+                            <input class="ask-user-input" @ref="askUserInput" @bind="pendingAnswer"
                                    placeholder="Trả lời của bạn" aria-label="Trả lời câu hỏi của trợ lý" />
                             <button type="submit" class="ask-user-send"
                                     disabled="@(string.IsNullOrWhiteSpace(pendingAnswer))">Gửi</button>
@@ -129,6 +129,9 @@
     private readonly Dictionary<ChatMessage, List<string>> messageAttachments = [];
     private CancellationTokenSource? currentResponseCancellation;
     private ChatMessage? currentResponseMessage;
+    private int turnEpoch;
+    private ElementReference askUserInput;
+    private bool focusAskUserInput;
     private ChatInput? chatInput;
     private ChatSidebar? sidebar;
     private readonly AskUserBroker askUserBroker = new();
@@ -144,15 +147,7 @@
     private string? status;
     private string? pendingQuestion;
 
-    private bool CanEditMessages
-    {
-        get
-        {
-            if (currentResponseMessage is not null)
-                return false;
-            return true;
-        }
-    }
+    private bool CanEditMessages => currentResponseMessage is null;
     private string systemPrompt = string.Empty;
     private string? pinnedModel;
     private string? activeModel;
@@ -193,7 +188,9 @@
     /// <summary>The ask_user tool is awaiting this answer inside the running turn.</summary>
     private void AnswerQuestion(string answer)
     {
-        if (!askUserBroker.TryAnswer(answer)) return;
+        askUserBroker.TryAnswer(answer);
+        // Close the panel even when no question waits any more, otherwise a button left over from a
+        // finished turn would keep a dead question on screen.
         ResetPendingQuestion();
     }
 
@@ -206,7 +203,7 @@
 
     private void SkipQuestion()
     {
-        if (!askUserBroker.TryDecline()) return;
+        askUserBroker.TryDecline();
         ResetPendingQuestion();
     }
 
@@ -230,8 +227,28 @@
             pendingOptions = question is null ? [] : [.. question.Options];
             pendingAllowFreeText = question?.AllowFreeText ?? true;
             pendingAnswer = null;
+            // Text typed into the composer is sent as a steer message, not as the answer, so a new
+            // question takes the focus once its panel is rendered.
+            focusAskUserInput = question is not null;
             StateHasChanged();
         });
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!focusAskUserInput) return;
+        focusAskUserInput = false;
+        if (!pendingAllowFreeText) return;
+
+        try
+        {
+            await askUserInput.FocusAsync();
+        }
+        catch (Exception ex)
+        {
+            // The panel can already be gone when the question is cancelled while it renders.
+            Logger.LogDebug(ex, "Could not focus the ask_user input.");
+        }
     }
 
     private void AddStep(string step)
@@ -331,6 +348,16 @@
         var usedModel = "unknown";
         var toolCalls = 0;
         var llmClock = Stopwatch.StartNew();
+        // A turn owns conversationId and messages until it is replaced. Stopping the turn, switching
+        // conversation, starting a new chat or starting the next turn bumps turnEpoch, so the late writes
+        // of an old turn (after many awaits) are dropped instead of landing in the new conversation.
+        Guid? turnConversation = null;
+        int? turnEpochAtStart = null;
+        bool IsTurnActive() =>
+            myResponse is not null
+            && turnEpochAtStart == turnEpoch
+            && conversationId is not null
+            && conversationId == turnConversation;
         try
         {
             await EnsureConversationAsync();
@@ -338,6 +365,8 @@
             if (await TrySteerAsync(userMessage)) return;
 
             CancelAnyCurrentResponse();
+            turnConversation = conversationId;
+            turnEpochAtStart = turnEpoch;
 
             var question = userMessage.Text ?? string.Empty;
             if (append)
@@ -345,7 +374,7 @@
                 messages.Add(userMessage);
                 if (attachedFiles.Count > 0)
                     messageAttachments[userMessage] = new List<string>(attachedFiles);
-                await Store.AppendAsync(conversationId!.Value, userId, "user", question);
+                await Store.AppendAsync(turnConversation!.Value, userId, "user", question);
             }
 
             status = null;
@@ -384,10 +413,11 @@
             responseText = new TextContent("");
             myResponse = new ChatMessage(ChatRole.Assistant, [responseText]);
             currentResponseMessage = myResponse;
+            currentResponseCancellation?.Dispose();
             currentResponseCancellation = new();
             await InvokeAsync(StateHasChanged);
 
-            var (harness, session, sessionFresh) = await GetAgentRunAsync(conversationId!.Value, model);
+            var (harness, session, sessionFresh) = await GetAgentRunAsync(turnConversation!.Value, model);
 
             var currentContents = new List<AIContent> { new TextContent(prompt) };
             currentContents.AddRange(messages[^1].Contents.OfType<DataContent>());
@@ -405,28 +435,37 @@
             await RenderStreamAsync();
 
             llmClock.Stop();
+            // The stream can finish while the user is stopping the turn or moving to another
+            // conversation; CancelAnyCurrentResponse already kept the partial bubble in that case.
+            if (!IsTurnActive()) return;
+
             askUserBroker.Cancel();
             ResetPendingQuestion();
-            RecordTrace(myResponse, toolCalls);
-            messages.Add(myResponse);
+            RecordTrace(myResponse!, toolCalls);
+            messages.Add(myResponse!);
             currentResponseMessage = null;
 
-            if (!string.IsNullOrWhiteSpace(responseText.Text))
+            if (!string.IsNullOrWhiteSpace(responseText!.Text))
             {
-                await Store.AppendAsync(conversationId!.Value, userId, "assistant", responseText.Text);
-                AttachGeneratedDocuments(responseText.Text);
-                await MaybeGenerateTitleAsync(question, responseText.Text);
+                await Store.AppendAsync(turnConversation!.Value, userId, "assistant", responseText.Text);
+                // Re-check after the write; the title request re-checks again after its own await.
+                if (IsTurnActive())
+                {
+                    AttachGeneratedDocuments(responseText.Text);
+                    await MaybeGenerateTitleAsync(turnConversation!.Value, question, responseText.Text);
+                }
             }
 
-            await sidebar!.ReloadAsync();
+            if (IsTurnActive())
+                await sidebar!.ReloadAsync();
         }
         catch (OperationCanceledException)
         {
-            askUserBroker.Cancel();
-            ResetPendingQuestion();
-            if (myResponse is not null && ReferenceEquals(currentResponseMessage, myResponse))
+            if (IsTurnActive())
             {
-                AddResponseIfAnswered(myResponse, toolCalls);
+                askUserBroker.Cancel();
+                ResetPendingQuestion();
+                AddResponseIfAnswered(myResponse!, toolCalls);
                 currentResponseMessage = null;
             }
 
@@ -444,13 +483,13 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to answer message.");
-            askUserBroker.Cancel();
-            ResetPendingQuestion();
             status = "Đã có lỗi khi trả lời. Vui lòng thử lại.";
             lastResponseFailed = true;
-            if (myResponse is not null && ReferenceEquals(currentResponseMessage, myResponse))
+            if (IsTurnActive())
             {
-                AddResponseIfAnswered(myResponse, toolCalls);
+                askUserBroker.Cancel();
+                ResetPendingQuestion();
+                AddResponseIfAnswered(myResponse!, toolCalls);
                 currentResponseMessage = null;
             }
 
@@ -477,14 +516,9 @@
                     toolCalls++;
                     Logger.LogDebug("FunctionCall: {Name} args={Args}",
                         call.Name, System.Text.Json.JsonSerializer.Serialize(call.Arguments));
-                    if (call.Name == AskUserTool.Name)
-                    {
-                        await chatInput!.FocusAsync();
-                    }
-                    else
-                    {
+                    // ask_user gets its own banner and takes the focus there; the others are a process step.
+                    if (call.Name != AskUserTool.Name)
                         AddStep($"Dùng {call.Name.Replace('_', ' ')}");
-                    }
                     changed = true;
                 }
             }
@@ -648,6 +682,8 @@
 
     private List<AITool> BuildAgentTools(string model)
     {
+        var search = WebSearch.Create();
+
         List<AITool> tools =
         [
             ChatDocumentTools.CreateReadDocument(userId, Env, Ocr),
@@ -655,10 +691,10 @@
             ResearchTools.Create(userId, crew.ResearcherModel, crew.ResearcherThinking),
             CrewWriter.Create(userId, crew.WriterModel, crew.WriterThinking),
             AskUserTool.Create(askUserBroker),
-            ToolSearchTool.Create(),
+            // The catalog must not advertise web_search when no key is configured and the tool is absent.
+            ToolSearchTool.Create(includeWebSearch: search is not null),
         ];
 
-        var search = WebSearch.Create();
         if (search is not null) tools.Add(search);
 
         return tools;
@@ -712,7 +748,7 @@
         title = created.Title;
     }
 
-    private async Task MaybeGenerateTitleAsync(string question, string answer)
+    private async Task MaybeGenerateTitleAsync(Guid conversation, string question, string answer)
     {
         if (title is not null && title != "Chat mới") return;
 
@@ -734,8 +770,12 @@
             Logger.LogWarning(ex, "Title generation failed — using fallback title '{Title}'.", generated);
         }
 
+        // The title request can outlive the turn: never rename (or relabel the header of) whatever
+        // conversation is on screen by then.
+        if (conversationId != conversation) return;
+
         title = generated;
-        await Store.RenameAsync(conversationId!.Value, userId, generated);
+        await Store.RenameAsync(conversation, userId, generated);
     }
 
     private async Task SelectConversationAsync(Guid id)
@@ -771,6 +811,9 @@
 
     private void CancelAnyCurrentResponse()
     {
+        // Invalidates the running turn so its late writes and catch handlers stay away from the
+        // conversation that replaces it.
+        turnEpoch++;
         // Releases a tool call waiting on the user, so a stopped turn cannot hang the session.
         askUserBroker.Cancel();
         ResetPendingQuestion();
@@ -829,5 +872,6 @@
         askUserBroker.Changed -= OnAskUserChanged;
         askUserBroker.Cancel();
         currentResponseCancellation?.Cancel();
+        currentResponseCancellation?.Dispose();
     }
 }

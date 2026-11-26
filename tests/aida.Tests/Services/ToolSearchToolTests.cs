@@ -13,13 +13,33 @@ public class ToolSearchToolTests
     {
         Assert.Equal(
             ["ask_user", "draft_document", "parallel_research", "read_document", "save_document", "tool_search", "web_search"],
-            ToolSearchTool.Catalog.Select(entry => entry.Name).Order());
-        Assert.All(ToolSearchTool.Catalog, entry =>
+            ToolSearchTool.Catalog(includeWebSearch: true).Select(entry => entry.Name).Order());
+        Assert.All(ToolSearchTool.Catalog(includeWebSearch: true), entry =>
         {
             Assert.False(string.IsNullOrWhiteSpace(entry.Description));
             Assert.False(string.IsNullOrWhiteSpace(entry.Parameters));
             Assert.False(string.IsNullOrWhiteSpace(entry.Domain));
         });
+    }
+
+    [Fact]
+    public void Catalog_omits_web_search_when_the_tool_is_not_registered()
+    {
+        var names = ToolSearchTool.Catalog(includeWebSearch: false).Select(entry => entry.Name).ToList();
+
+        Assert.DoesNotContain("web_search", names);
+        Assert.Contains("tool_search", names);
+        Assert.Empty(ToolSearchTool.Search("public web", null, includeWebSearch: false));
+        Assert.DoesNotContain("web_search", ToolSearchTool.SearchJson("web", null, includeWebSearch: false));
+        Assert.Contains("web_search", ToolSearchTool.SearchJson("web", null, includeWebSearch: true));
+    }
+
+    [Fact]
+    public void A_catastrophic_pattern_times_out_instead_of_hanging()
+    {
+        var haystack = new string('a', 40) + "!";
+
+        Assert.False(ToolSearchTool.Matches(haystack, "(a+)+$", TimeSpan.FromMilliseconds(1)));
     }
 
     [Fact]
@@ -102,7 +122,7 @@ public class ToolSearchToolTests
     [Fact]
     public void Tool_declaration_is_named_tool_search()
     {
-        var tool = ToolSearchTool.Create();
+        var tool = ToolSearchTool.Create(includeWebSearch: true);
 
         Assert.Equal("tool_search", tool.Name);
         Assert.False(string.IsNullOrWhiteSpace(tool.Description));

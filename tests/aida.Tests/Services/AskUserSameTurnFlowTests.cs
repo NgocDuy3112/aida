@@ -69,7 +69,7 @@ public class AskUserSameTurnFlowTests
             MaximumIterationsPerRequest = 4,
             ChatOptions = new ChatOptions
             {
-                Tools = [AskUserTool.Create(broker), ToolSearchTool.Create()],
+                Tools = [AskUserTool.Create(broker), ToolSearchTool.Create(includeWebSearch: false)],
             },
         });
 

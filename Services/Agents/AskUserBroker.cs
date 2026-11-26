@@ -50,9 +50,9 @@ internal sealed class AskUserBroker
             replaced?.Answer.TrySetResult(DeclinedAnswer);
         }
 
-        RaiseChanged(pending.Question);
         try
         {
+            RaiseChanged(pending);
             using var registration = ct.Register(() => pending.Answer.TrySetCanceled(ct));
             return await pending.Answer.Task.ConfigureAwait(false);
         }
@@ -109,5 +109,18 @@ internal sealed class AskUserBroker
         RaiseChanged(null);
     }
 
-    private void RaiseChanged(AskUserQuestion? question) => Changed?.Invoke(question);
+    /// <summary>
+    /// Raises <see cref="Changed"/> with the state of <paramref name="waiting"/>, but only while that
+    /// state is still the current one: a turn that has already been answered, declined or cancelled
+    /// must not overwrite the panel of the question that replaced it.
+    /// </summary>
+    private void RaiseChanged(Waiting? waiting)
+    {
+        lock (gate)
+        {
+            if (!ReferenceEquals(current, waiting)) return;
+        }
+
+        Changed?.Invoke(waiting?.Question);
+    }
 }

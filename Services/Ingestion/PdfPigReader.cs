@@ -50,8 +50,21 @@ internal sealed class PdfPigReader(IPdfOcrEngine? ocrEngine = null, OcrOptions? 
 
         if (engine is not null && pdfPage.Letters.Count < _ocrOptions.MinLettersPerPage)
         {
-            section.Elements.Add(await ReadScannedPageAsync(pdfPage, identifier, engine, cancellationToken));
-            return section;
+            var scanned = await TryReadScannedPageAsync(pdfPage, engine, cancellationToken);
+            if (scanned is not null)
+            {
+                section.Elements.Add(scanned);
+                return section;
+            }
+
+            // A thin text layer (a cover page, "Report 2024") is still readable, so keep it instead of
+            // failing the document; only a page with no text layer at all is unreadable.
+            if (pdfPage.Letters.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    $"Page {pdfPage.Number} of '{identifier}' has no text layer and no OCR-readable image; " +
+                    "the page cannot be ingested.");
+            }
         }
 
         var letters = pdfPage.Letters;
@@ -68,19 +81,20 @@ internal sealed class PdfPigReader(IPdfOcrEngine? ocrEngine = null, OcrOptions? 
         return section;
     }
 
-    private async Task<IngestionDocumentParagraph> ReadScannedPageAsync(
-        Page pdfPage, string identifier, IPdfOcrEngine engine, CancellationToken cancellationToken)
+    /// <summary>OCR text of the page images, or <c>null</c> when no image yielded any text.</summary>
+    private async Task<IngestionDocumentParagraph?> TryReadScannedPageAsync(
+        Page pdfPage, IPdfOcrEngine engine, CancellationToken cancellationToken)
     {
         var recognized = new List<string>();
 
         foreach (var image in pdfPage.GetImages())
         {
-            if (!image.TryGetPng(out var png) || png is null)
+            using var imageStream = OcrImageBytes(image);
+            if (imageStream is null)
             {
                 continue;
             }
 
-            using var imageStream = new MemoryStream(png);
             var text = await engine.RecognizeAsync(imageStream, _ocrOptions.Language, cancellationToken);
             if (!string.IsNullOrWhiteSpace(text))
             {
@@ -90,9 +104,7 @@ internal sealed class PdfPigReader(IPdfOcrEngine? ocrEngine = null, OcrOptions? 
 
         if (recognized.Count == 0)
         {
-            throw new InvalidOperationException(
-                $"Page {pdfPage.Number} of '{identifier}' has no text layer and no OCR-readable image; " +
-                "the page cannot be ingested.");
+            return null;
         }
 
         var pageText = string.Join("\n\n", recognized);
@@ -100,5 +112,19 @@ internal sealed class PdfPigReader(IPdfOcrEngine? ocrEngine = null, OcrOptions? 
         {
             Text = pageText
         };
+    }
+
+    /// <summary>
+    /// PNG when PdfPig can convert the image, otherwise the encoded image bytes: <c>TryGetPng</c> cannot
+    /// convert JPEG, so a DCTDecode scan keeps its bytes and the OCR engine decodes JPEG itself.
+    /// </summary>
+    private static MemoryStream? OcrImageBytes(IPdfImage image)
+    {
+        if (image.TryGetPng(out var png) && png is not null)
+        {
+            return new MemoryStream(png);
+        }
+
+        return image.RawMemory.IsEmpty ? null : new MemoryStream(image.RawMemory.ToArray());
     }
 }

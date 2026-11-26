@@ -110,6 +110,19 @@ public class AskUserBrokerTests
     }
 
     [Fact]
+    public async Task A_throwing_panel_handler_does_not_leave_the_question_stuck()
+    {
+        var broker = new AskUserBroker();
+        broker.Changed += _ => throw new InvalidOperationException("panel is gone");
+
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(
+            () => broker.AskAsync("Bạn muốn gì?", Options, true, CancellationToken.None));
+
+        Assert.Null(broker.Pending);
+        Assert.False(broker.TryAnswer("Tóm tắt"));
+    }
+
+    [Fact]
     public async Task A_second_question_declines_the_unanswered_first()
     {
         var broker = new AskUserBroker();

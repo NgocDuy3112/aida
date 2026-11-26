@@ -12,6 +12,8 @@ public class PdfPigReaderTests
     private const string PdfMediaType = "application/pdf";
     private static readonly byte[] ScanPng = File.ReadAllBytes(
         Path.Combine(AppContext.BaseDirectory, "TestData", "ocr-scan-vi.png"));
+    private static readonly byte[] ScanJpeg = File.ReadAllBytes(
+        Path.Combine(AppContext.BaseDirectory, "TestData", "ocr-scan-vi.jpg"));
 
     static PdfPigReaderTests()
     {
@@ -106,6 +108,86 @@ public class PdfPigReaderTests
         return new MemoryStream(bytes);
     }
 
+    [Fact]
+    public async Task Jpeg_scan_is_ocrd_without_png_conversion()
+    {
+        using var pdf = BuildJpegOnlyPdf();
+        var engine = new RecordingOcrEngine("HÓA ĐƠN THANH TOÁN\nSố tiền: 1.250.000 VND");
+        var reader = new PdfPigReader(engine);
+
+        var document = await reader.ReadAsync(pdf, "jpeg-scan.pdf", PdfMediaType);
+
+        Assert.Equal(1, engine.Calls);
+        // TryGetPng cannot convert JPEG, so the engine must receive the encoded JPEG itself.
+        Assert.Equal((byte)0xFF, engine.LastImage[0]);
+        Assert.Equal((byte)0xD8, engine.LastImage[1]);
+        var text = string.Join("\n", document.EnumerateContent().Select(c => c.Text));
+        Assert.Contains("1.250.000 VND", text);
+    }
+
+    [Fact]
+    public async Task Thin_text_layer_page_is_kept_when_ocr_finds_no_image()
+    {
+        using var pdf = BuildThinTextPdf();
+        var engine = new RecordingOcrEngine("should not be used");
+        var reader = new PdfPigReader(engine);
+
+        var document = await reader.ReadAsync(pdf, "cover.pdf", PdfMediaType);
+
+        Assert.Equal(0, engine.Calls);
+        var text = string.Join("\n", document.EnumerateContent().Select(c => c.Text));
+        Assert.Contains("Report 2024", text);
+    }
+
+    [Fact]
+    public void Thin_text_fixture_is_below_the_ocr_threshold_but_not_empty()
+    {
+        using var pdf = BuildThinTextPdf();
+        using var document = PdfDocument.Open(pdf);
+        var letters = document.GetPages().Single().Letters.Count;
+
+        Assert.InRange(letters, 1, new OcrOptions().MinLettersPerPage - 1);
+    }
+
+    [Fact]
+    public void Jpeg_fixture_has_no_text_layer()
+    {
+        using var pdf = BuildJpegOnlyPdf();
+        using var document = PdfDocument.Open(pdf);
+
+        Assert.Empty(document.GetPages().Single().Letters);
+    }
+
+    private static MemoryStream BuildJpegOnlyPdf()
+    {
+        var bytes = Document.Create(container =>
+        {
+            container.Page(page =>
+            {
+                page.Size(PageSizes.A4);
+                page.Margin(1, Unit.Centimetre);
+                page.Content().Image(ScanJpeg).FitArea();
+            });
+        }).GeneratePdf();
+
+        return new MemoryStream(bytes);
+    }
+
+    private static MemoryStream BuildThinTextPdf()
+    {
+        var bytes = Document.Create(container =>
+        {
+            container.Page(page =>
+            {
+                page.Size(PageSizes.A4);
+                page.Margin(1, Unit.Centimetre);
+                page.Content().Text("Report 2024");
+            });
+        }).GeneratePdf();
+
+        return new MemoryStream(bytes);
+    }
+
     private static MemoryStream BuildVectorOnlyPdf()
     {
         var bytes = Document.Create(container =>
@@ -131,10 +213,15 @@ public class PdfPigReaderTests
 
         public string? LastLanguage { get; private set; }
 
+        public byte[] LastImage { get; private set; } = [];
+
         public Task<string> RecognizeAsync(Stream image, string language, CancellationToken cancellationToken)
         {
             Calls++;
             LastLanguage = language;
+            using var buffer = new MemoryStream();
+            image.CopyTo(buffer);
+            LastImage = buffer.ToArray();
             return Task.FromResult(text);
         }
     }
