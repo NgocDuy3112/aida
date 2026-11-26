@@ -19,7 +19,9 @@ ENV ASPNETCORE_URLS=http://+:8080 \
 # The Tesseract 5.2.0 NuGet interop resolves native libraries from <app>/x64 and
 # asks for the package's hard-coded names (libtesseract50, libleptonica-1.82.0)
 # plus libdl, so alias the distro sonames.
+# The build host blocks outbound port 80, so force apt onto HTTPS (443).
 RUN set -eux; \
+    sed -i 's|http://|https://|g' /etc/apt/sources.list.d/ubuntu.sources; \
     apt-get update; \
     apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-vie tesseract-ocr-eng; \
     libtesseract="$(ldconfig -p | awk '/libtesseract\.so\.5/ {print $NF; exit}')"; \
