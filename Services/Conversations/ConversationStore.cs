@@ -60,10 +60,12 @@ public class ConversationStore(
             await db.ChatMessages
                 .Where(m => m.ConversationId == conversationId && m.Conversation!.UserId == userId)
                 .OrderBy(m => m.Ordinal)
-                .Select(m => new ChatMessageRecord(m.Role, m.Text))
+                .Select(m => new ChatMessageRecord(m.Role, m.Text, m.Kind))
                 .ToListAsync(ct), ct);
 
-    public async Task AppendAsync(Guid conversationId, string userId, string role, string text, CancellationToken ct = default)
+    public async Task AppendAsync(
+        Guid conversationId, string userId, string role, string text, string? kind = null,
+        CancellationToken ct = default)
     {
         await WithDbAsync(async db =>
         {
@@ -80,6 +82,7 @@ public class ConversationStore(
                 ConversationId = conversationId,
                 Role = role,
                 Text = text,
+                Kind = kind,
                 Ordinal = next + 1
             });
             conversation.UpdatedAt = DateTimeOffset.UtcNow;

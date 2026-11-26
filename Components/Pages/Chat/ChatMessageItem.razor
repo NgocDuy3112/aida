@@ -43,8 +43,12 @@
                 }
             </div>
         }
-        <chat-markdown markdown="@Message.Text" />
-        @if (Editable)
+        @if (AskUserTranscript.IsExchange(Message))
+        {
+            <div class="ask-user-badge">@(AskUserTranscript.IsDeclined(Message) ? "Bỏ qua" : "Trả lời câu hỏi")</div>
+        }
+        <chat-markdown markdown="@AskUserTranscript.DisplayText(Message)" />
+        @if (Editable && !AskUserTranscript.IsExchange(Message))
         {
             <button type="button" class="message-edit-btn" aria-label="Sửa tin nhắn"
                     title="Sửa tin nhắn" @onclick="StartEdit">✎</button>
@@ -67,7 +71,7 @@ else if (Message.Role == ChatRole.Assistant)
                         </svg>
                     </div>
                 </div>
-                <div class="assistant-message-header">Trợ lý</div>
+                <div class="assistant-message-header">@(AskUserTranscript.IsQuestion(Message) ? "Câu hỏi" : "Trợ lý")</div>
                 <div class="assistant-message-text" aria-live="@(InProgress ? "polite" : null)" aria-busy="@(InProgress ? "true" : null)">
                     <assistant-message markdown="@text"></assistant-message>
 

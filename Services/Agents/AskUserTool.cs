@@ -43,10 +43,15 @@ internal static class AskUserTool
         """).RootElement.Clone();
 
     /// <summary>Builds the real ask_user tool: the call blocks on <paramref name="broker"/> until answered.</summary>
-    internal static AIFunction Create(AskUserBroker broker) => new AskUserFunction(broker);
+    /// <param name="onResolved">
+    /// Awaited with the resolved exchange before the tool result reaches the model, so the conversation can
+    /// keep the question and its answer.
+    /// </param>
+    internal static AIFunction Create(AskUserBroker broker, Func<AskUserExchange, Task>? onResolved = null) =>
+        new AskUserFunction(broker, onResolved);
 }
 
-internal sealed class AskUserFunction(AskUserBroker broker) : AIFunction
+internal sealed class AskUserFunction(AskUserBroker broker, Func<AskUserExchange, Task>? onResolved = null) : AIFunction
 {
     public override string Name => AskUserTool.Name;
 
@@ -70,6 +75,7 @@ internal sealed class AskUserFunction(AskUserBroker broker) : AIFunction
             question,
             options,
             AskUserArguments.AllowFreeText(arguments),
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            onResolved).ConfigureAwait(false);
     }
 }

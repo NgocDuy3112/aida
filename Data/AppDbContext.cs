@@ -31,6 +31,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
             e.HasKey(m => m.Id);
             e.Property(m => m.Role).HasMaxLength(32).IsRequired();
             e.Property(m => m.Text).IsRequired();
+            e.Property(m => m.Kind).HasMaxLength(32);
             e.HasOne(m => m.Conversation).WithMany(c => c.Messages)
              .HasForeignKey(m => m.ConversationId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(m => new { m.ConversationId, m.Ordinal });

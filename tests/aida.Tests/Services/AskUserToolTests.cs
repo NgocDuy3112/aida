@@ -96,6 +96,69 @@ public class AskUserToolTests
         Assert.Empty(asked!.Options);
     }
 
+    [Theory]
+    [InlineData("answer")]
+    [InlineData("decline")]
+    [InlineData("steer")]
+    public async Task Invoke_reports_the_resolved_exchange_before_it_returns_the_result(string resolution)
+    {
+        var (expected, answer) = resolution switch
+        {
+            "answer" => (AskUserOutcome.Answered, "Liệt kê"),
+            "decline" => (AskUserOutcome.Declined, AskUserBroker.DeclinedAnswer),
+            _ => (AskUserOutcome.Steered, AskUserBroker.SteeredAnswer("Làm bản ngắn")),
+        };
+
+        var broker = new AskUserBroker();
+        var resolved = new List<AskUserExchange>();
+        var persisted = false;
+        var tool = AskUserTool.Create(broker, exchange =>
+        {
+            resolved.Add(exchange);
+            persisted = true;
+            return Task.CompletedTask;
+        });
+
+        broker.Changed += question =>
+        {
+            if (question is null) return;
+            switch (resolution)
+            {
+                case "answer": broker.TryAnswer("Liệt kê"); break;
+                case "decline": broker.TryDecline(); break;
+                default: broker.TrySteer("Làm bản ngắn"); break;
+            }
+        };
+
+        var result = await tool.InvokeAsync(Arguments(new() { ["question"] = "Bạn muốn gì?" }));
+
+        Assert.Equal(answer, result);
+        // The caller stored the exchange before the tool result reached the model, not after.
+        Assert.True(persisted);
+        var exchange = Assert.Single(resolved);
+        Assert.Equal("Bạn muốn gì?", exchange.Question.Question);
+        Assert.Equal(expected, exchange.Outcome);
+        Assert.Equal(answer, exchange.Answer);
+    }
+
+    [Fact]
+    public async Task Invoke_reports_nothing_when_the_question_is_cancelled()
+    {
+        var broker = new AskUserBroker();
+        var tool = AskUserTool.Create(broker, _ =>
+        {
+            throw new InvalidOperationException("A cancelled question was reported as resolved.");
+        });
+        using var cancellation = new CancellationTokenSource();
+        broker.Changed += question =>
+        {
+            if (question is not null) cancellation.Cancel();
+        };
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await tool.InvokeAsync(
+            Arguments(new() { ["question"] = "Bạn muốn gì?" }), cancellation.Token));
+    }
+
     [Fact]
     public void Tool_name_and_description_are_stable()
     {

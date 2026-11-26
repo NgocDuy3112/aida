@@ -155,7 +155,10 @@
 
             for (var i = chatRunner.Messages.Count - 1; i >= 1; i--)
             {
-                if (chatRunner.Messages[i].Role == ChatRole.Assistant && !string.IsNullOrWhiteSpace(chatRunner.Messages[i].Text))
+                // A stored question is an assistant row too, but it is not an answer to regenerate.
+                if (chatRunner.Messages[i].Role == ChatRole.Assistant
+                    && !AskUserTranscript.IsQuestion(chatRunner.Messages[i])
+                    && !string.IsNullOrWhiteSpace(chatRunner.Messages[i].Text))
                     return chatRunner.Messages[i];
             }
             return null;
@@ -345,8 +348,7 @@
         chatRunner.ResetTranscript();
         foreach (var row in rows)
         {
-            chatRunner.Messages.Add(new ChatMessage(
-                row.Role == "assistant" ? ChatRole.Assistant : ChatRole.User, row.Text));
+            chatRunner.Messages.Add(AskUserTranscript.Restore(row.Role, row.Text, row.Kind));
         }
 
         chatRunner.ConversationId = id;
@@ -367,8 +369,10 @@
         if (chatRunner.ConversationId is null || string.IsNullOrWhiteSpace(chatRunner.UserId)) return;
 
         var messages = chatRunner.Messages;
+        // An answered question is a user row, but regenerating continues from the question asked in the
+        // composer, dropping the whole exchange that followed it.
         var lastUserIndex = messages.FindLastIndex(
-            m => m.Role == ChatRole.User && !string.IsNullOrWhiteSpace(m.Text));
+            m => m.Role == ChatRole.User && !AskUserTranscript.IsExchange(m) && !string.IsNullOrWhiteSpace(m.Text));
         if (lastUserIndex < 1) return;
 
         for (var i = messages.Count - 1; i > lastUserIndex; i--)

@@ -10,6 +10,16 @@
     overflow-wrap: anywhere;
 }
 
+.ask-user-badge {
+    display: inline-block;
+    margin-bottom: var(--space-1);
+    padding: 0.1rem var(--space-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
 .assistant-message,
 .assistant-search {
     display: grid;

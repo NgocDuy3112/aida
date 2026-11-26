@@ -32,7 +32,7 @@ internal sealed class FakeConversationStore : IConversationStore
     private readonly Dictionary<Guid, List<(int Ordinal, ChatMessageRecord Record)>> messages = [];
     private readonly Dictionary<Guid, ConversationSummary> conversations = [];
 
-    public List<(Guid ConversationId, string Role, string Text)> Appended { get; } = [];
+    public List<(Guid ConversationId, string Role, string Text, string? Kind)> Appended { get; } = [];
     public List<(Guid ConversationId, int Ordinal)> DeletedFrom { get; } = [];
 
     public IReadOnlyList<ChatMessageRecord> MessagesOf(Guid id) =>
@@ -56,12 +56,13 @@ internal sealed class FakeConversationStore : IConversationStore
         Task.FromResult(MessagesOf(conversationId));
 
     public Task AppendAsync(
-        Guid conversationId, string userId, string role, string text, CancellationToken ct = default)
+        Guid conversationId, string userId, string role, string text, string? kind = null,
+        CancellationToken ct = default)
     {
-        Appended.Add((conversationId, role, text));
+        Appended.Add((conversationId, role, text, kind));
         var rows = messages[conversationId];
         var next = rows.Count == 0 ? 1 : rows.Max(r => r.Ordinal) + 1;
-        rows.Add((next, new ChatMessageRecord(role, text)));
+        rows.Add((next, new ChatMessageRecord(role, text, kind)));
         return Task.CompletedTask;
     }
 
@@ -71,7 +72,7 @@ internal sealed class FakeConversationStore : IConversationStore
         var rows = messages[conversationId];
         var index = rows.FindIndex(r => r.Ordinal == ordinal);
         if (index >= 0)
-            rows[index] = (ordinal, new ChatMessageRecord(rows[index].Record.Role, text));
+            rows[index] = (ordinal, new ChatMessageRecord(rows[index].Record.Role, text, rows[index].Record.Kind));
         return Task.CompletedTask;
     }
 

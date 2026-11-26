@@ -241,6 +241,10 @@ namespace aida.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("Kind")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
                     b.Property<int>("Ordinal")
                         .HasColumnType("integer");
 

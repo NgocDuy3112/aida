@@ -401,6 +401,42 @@ internal sealed class ChatRunner
         }
     }
 
+    /// <summary>
+    /// Stores an ask_user exchange as two transcript rows — the question the tool asked and the answer it
+    /// was given — so a reloaded conversation still shows it and the next fresh agent run reads it as
+    /// history. One row per transcript message keeps the store ordinal equal to the transcript index, which
+    /// is what editing and regenerating a message rely on.
+    /// </summary>
+    internal async Task RecordAskUserExchangeAsync(Guid conversationId, AskUserExchange exchange)
+    {
+        // A steered question is stored by TrySteerAsync, next to the message the user sent instead of it.
+        if (exchange.Outcome == AskUserOutcome.Steered) return;
+
+        var question = AskUserTranscript.Question(exchange.Question.Question);
+        var answer = AskUserTranscript.Answer(exchange.Outcome, exchange.Answer);
+
+        try
+        {
+            await store.AppendAsync(
+                conversationId, UserId, "assistant", exchange.Question.Question, AskUserTranscript.QuestionKind);
+            await store.AppendAsync(
+                conversationId, UserId, "user", exchange.Answer, AskUserTranscript.KindOf(exchange.Outcome));
+        }
+        catch (Exception ex)
+        {
+            // The answer already reached the model; a store failure must not fail the turn.
+            logger.LogWarning(ex, "Could not store the ask_user exchange of {Conversation}.", conversationId);
+            return;
+        }
+
+        // A turn that moved to another conversation keeps its rows, but must not write into that transcript.
+        if (ConversationId != conversationId) return;
+
+        Messages.Add(question);
+        Messages.Add(answer);
+        await view.RenderAsync();
+    }
+
     private async Task<bool> TrySteerAsync(ChatMessage userMessage)
     {
         if (CurrentResponseMessage is null) return false;
@@ -408,6 +444,15 @@ internal sealed class ChatRunner
         if (!agentRuns.TryGetValue(ConversationId.Value, out var activeRun)) return false;
 
         var question = userMessage.Text ?? string.Empty;
+        // The steer replaces the waiting question, so the question is stored first and the steer message
+        // (already stored below as the user's own message) is what answers it: one row each, no repeat.
+        if (askUserBroker.Pending is { } pending)
+        {
+            await store.AppendAsync(
+                ConversationId.Value, UserId, "assistant", pending.Question, AskUserTranscript.QuestionKind);
+            Messages.Add(AskUserTranscript.Question(pending.Question));
+        }
+
         Messages.Add(userMessage);
         if (AttachedFiles.Count > 0)
             MessageAttachments[userMessage] = new List<string>(AttachedFiles);
@@ -509,7 +554,7 @@ internal sealed class ChatRunner
             openAi.GetChatClient(model).AsIChatClient(),
             usageTracker, pricing, UserId, model, "agent");
 
-        var tools = BuildAgentTools(model);
+        var tools = BuildAgentTools(conversationId, model);
         logger.LogInformation("Agent tools: {Tools}",
             string.Join(", ", tools.OfType<AIFunctionDeclaration>().Select(t => t.Name)));
 
@@ -566,7 +611,7 @@ internal sealed class ChatRunner
         return text[..1500] + " …";
     }
 
-    private List<AITool> BuildAgentTools(string model)
+    private List<AITool> BuildAgentTools(Guid conversationId, string model)
     {
         var webSearchTool = webSearch.Create();
 
@@ -576,7 +621,7 @@ internal sealed class ChatRunner
             ChatDocumentTools.CreateSaveDocument(UserId, documents),
             researchTools.Create(UserId, Crew.ResearcherModel, Crew.ResearcherThinking),
             crewWriter.Create(UserId, Crew.WriterModel, Crew.WriterThinking),
-            AskUserTool.Create(askUserBroker),
+            AskUserTool.Create(askUserBroker, exchange => RecordAskUserExchangeAsync(conversationId, exchange)),
             // The catalog must not advertise web_search when no key is configured and the tool is absent.
             ToolSearchTool.Create(includeWebSearch: webSearchTool is not null),
         ];

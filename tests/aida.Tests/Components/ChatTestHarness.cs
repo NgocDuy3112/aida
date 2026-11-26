@@ -84,13 +84,18 @@ internal sealed class ChatTestHarness : IDisposable
     /// <param name="ingestor">
     /// Replaces the document ingestor, so a test can let an upload ingest for real without a vector database.
     /// </param>
-    public static ChatTestHarness Render(ModelScripts? models = null, DocumentIngestor? ingestor = null)
+    /// <param name="store">
+    /// The conversation store to render with; a seeded one lets a test open a conversation that was
+    /// already stored, i.e. what a reload builds the transcript from.
+    /// </param>
+    public static ChatTestHarness Render(
+        ModelScripts? models = null, DocumentIngestor? ingestor = null, FakeConversationStore? store = null)
     {
         models ??= new ModelScripts();
         var context = new BunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
 
-        var store = new FakeConversationStore();
+        store ??= new FakeConversationStore();
         var rateLimiter = new FakeRateLimiter();
         var usage = new FakeUsageTracker();
         var userManager = new FakeUserManager();
@@ -140,6 +145,11 @@ internal sealed class ChatTestHarness : IDisposable
     public Task StartSendAsync(string text) =>
         Context.Renderer.Dispatcher.InvokeAsync(() => SendAsync(text));
 
+    /// <summary>Opens a stored conversation, exactly like picking it in the sidebar.</summary>
+    public Task OpenAsync(Guid conversationId) =>
+        Context.Renderer.Dispatcher.InvokeAsync(
+            () => Page.FindComponent<ChatSidebar>().Instance.OnSelect.InvokeAsync(conversationId));
+
     /// <summary>Stops the streaming turn, exactly like the stop button.</summary>
     public Task StopAsync() =>
         Context.Renderer.Dispatcher.InvokeAsync(
@@ -170,13 +180,28 @@ internal sealed class ModelScripts
 {
     private readonly Queue<Func<ModelRequest, HttpContent>> streamAnswers = new();
     private readonly List<ModelRequest> requests = [];
+    private readonly List<(ModelRequest Request, string Body)> sent = [];
 
     public int StreamingRequestCount => requests.Count(r => r.IsStreaming);
+
+    /// <summary>The bodies of the streaming chat requests, in order, as the model read them.</summary>
+    public IReadOnlyList<string> StreamingBodies =>
+        [.. sent.Where(s => s.Request.IsStreaming).Select(s => s.Body)];
 
     /// <summary>Queues the delta texts a streaming answer is built from.</summary>
     public ModelScripts Answer(params string[] deltas)
     {
         streamAnswers.Enqueue(_ => Sse.Answer(deltas));
+        return this;
+    }
+
+    /// <summary>
+    /// Queues an answer that calls ask_user first: the tool blocks until the test answers it, then the
+    /// next queued answer finishes the turn.
+    /// </summary>
+    public ModelScripts AskUser(string question, string[] options)
+    {
+        streamAnswers.Enqueue(_ => Sse.ToolCall(AskUserTool.Name, new { question, options }));
         return this;
     }
 
@@ -205,7 +230,11 @@ internal sealed class ModelScripts
         return streamAnswers.Dequeue()(request);
     }
 
-    internal void Record(ModelRequest request) => requests.Add(request);
+    internal void Record(ModelRequest request, string body)
+    {
+        requests.Add(request);
+        sent.Add((request, body));
+    }
 }
 
 internal static class Sse
@@ -234,6 +263,40 @@ internal static class Sse
     /// <summary>One complete streaming assistant answer, as the OpenAI SDK parses it.</summary>
     public static HttpContent Answer(params string[] deltas) =>
         Raw((string.Concat(deltas.Select(d => Chunk(d))) + Chunk(finishReason: "stop") + "data: [DONE]\n\n", null));
+
+    /// <summary>One streaming answer that calls <paramref name="name"/> and stops for the tool result.</summary>
+    public static HttpContent ToolCall(string name, object arguments)
+    {
+        var payload = JsonSerializer.Serialize(new
+        {
+            id = "chatcmpl-test",
+            @object = "chat.completion.chunk",
+            created = 0,
+            model = "test/light",
+            choices = new object[]
+            {
+                new
+                {
+                    index = 0,
+                    delta = new
+                    {
+                        tool_calls = new object[]
+                        {
+                            new
+                            {
+                                index = 0,
+                                id = "call_1",
+                                type = "function",
+                                function = new { name, arguments = JsonSerializer.Serialize(arguments) },
+                            },
+                        },
+                    },
+                    finish_reason = (string?)null,
+                },
+            },
+        });
+        return Raw(($"data: {payload}\n\n" + Chunk(finishReason: "tool_calls") + "data: [DONE]\n\n", null));
+    }
 
     public static HttpContent Gated(Task gate, string before, string after) =>
         Raw((Chunk(before), null),
@@ -275,7 +338,7 @@ internal sealed class ScriptedHttpHandler(ModelScripts models) : HttpMessageHand
         var streaming = JsonDocument.Parse(body).RootElement.TryGetProperty("stream", out var flag)
                         && flag.ValueKind == JsonValueKind.True;
         var modelRequest = new ModelRequest(Interlocked.Increment(ref index) - 1, streaming);
-        models.Record(modelRequest);
+        models.Record(modelRequest, body);
 
         return new HttpResponseMessage(HttpStatusCode.OK)
         {

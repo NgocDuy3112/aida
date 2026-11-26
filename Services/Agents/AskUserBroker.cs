@@ -3,6 +3,22 @@ namespace aida.Services.Agents;
 /// <summary>A question the agent is waiting on, as rendered by the chat panel.</summary>
 internal sealed record AskUserQuestion(long Id, string Question, IReadOnlyList<string> Options, bool AllowFreeText);
 
+/// <summary>How the waiting question stopped waiting for a real answer.</summary>
+internal enum AskUserOutcome
+{
+    /// <summary>The user typed or picked an answer.</summary>
+    Answered,
+
+    /// <summary>The user skipped the question; the tool returned <see cref="AskUserBroker.DeclinedAnswer"/>.</summary>
+    Declined,
+
+    /// <summary>The user sent a new message instead; the tool returned <see cref="AskUserBroker.SteeredAnswerPrefix"/>.</summary>
+    Steered,
+}
+
+/// <summary>A question the user resolved, i.e. one that is worth keeping in the conversation.</summary>
+internal sealed record AskUserExchange(AskUserQuestion Question, AskUserOutcome Outcome, string Answer);
+
 /// <summary>
 /// Bridges the blocking ask_user tool call and the chat UI. The tool registers a question and awaits
 /// it inside the running agent turn; the UI answers or declines it. Cancellation (<see cref="Cancel"/>)
@@ -20,6 +36,9 @@ internal sealed class AskUserBroker
     private sealed class Waiting(AskUserQuestion question)
     {
         public AskUserQuestion Question { get; } = question;
+
+        /// <summary>Set by whoever answered; <c>null</c> while the question still waits.</summary>
+        public AskUserOutcome? Outcome { get; set; }
 
         public TaskCompletionSource<string> Answer { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -42,8 +61,13 @@ internal sealed class AskUserBroker
     /// <see cref="DeclinedAnswer"/> when the user skips. Throws <see cref="OperationCanceledException"/>
     /// when <paramref name="ct"/> or <see cref="Cancel"/> releases the question.
     /// </summary>
+    /// <param name="onResolved">
+    /// Awaited with the exchange before the answer is returned to the caller, so what the model reads and
+    /// what the conversation keeps cannot drift apart. Not called when the question is cancelled.
+    /// </param>
     public async Task<string> AskAsync(
-        string question, IReadOnlyList<string> options, bool allowFreeText, CancellationToken ct)
+        string question, IReadOnlyList<string> options, bool allowFreeText, CancellationToken ct,
+        Func<AskUserExchange, Task>? onResolved = null)
     {
         Waiting pending;
         lock (gate)
@@ -59,7 +83,10 @@ internal sealed class AskUserBroker
         {
             RaiseChanged(pending);
             using var registration = ct.Register(() => pending.Answer.TrySetCanceled(ct));
-            return await pending.Answer.Task.ConfigureAwait(false);
+            var answer = await pending.Answer.Task.ConfigureAwait(false);
+            if (onResolved is not null && pending.Outcome is { } outcome)
+                await onResolved(new AskUserExchange(pending.Question, outcome, answer)).ConfigureAwait(false);
+            return answer;
         }
         finally
         {
@@ -68,7 +95,18 @@ internal sealed class AskUserBroker
     }
 
     /// <summary>Completes the waiting question with <paramref name="answer"/>; false when nothing waits.</summary>
-    public bool TryAnswer(string answer)
+    public bool TryAnswer(string answer) => Resolve(answer, AskUserOutcome.Answered);
+
+    /// <summary>Answers the waiting question with <see cref="DeclinedAnswer"/>.</summary>
+    public bool TryDecline() => Resolve(DeclinedAnswer, AskUserOutcome.Declined);
+
+    /// <summary>
+    /// Answers the waiting question with the message the user sent instead of an answer, so the model
+    /// reads a new instruction rather than a refusal.
+    /// </summary>
+    public bool TrySteer(string message) => Resolve(SteeredAnswer(message), AskUserOutcome.Steered);
+
+    private bool Resolve(string answer, AskUserOutcome outcome)
     {
         Waiting? pending;
         lock (gate)
@@ -79,19 +117,11 @@ internal sealed class AskUserBroker
 
         if (pending is null) return false;
 
+        pending.Outcome = outcome;
         var accepted = pending.Answer.TrySetResult(answer.Trim());
         RaiseChanged(null);
         return accepted;
     }
-
-    /// <summary>Answers the waiting question with <see cref="DeclinedAnswer"/>.</summary>
-    public bool TryDecline() => TryAnswer(DeclinedAnswer);
-
-    /// <summary>
-    /// Answers the waiting question with the message the user sent instead of an answer, so the model
-    /// reads a new instruction rather than a refusal.
-    /// </summary>
-    public bool TrySteer(string message) => TryAnswer(SteeredAnswer(message));
 
     internal static string SteeredAnswer(string message)
     {
