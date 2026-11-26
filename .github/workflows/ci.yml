@@ -14,7 +14,10 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest (26.04 "resolute") ships libleptonica6 (liblept.so.6),
+    # while the prod image (mcr aspnet:10.0 = noble) ships liblept.so.5. CI must test
+    # the same Tesseract stack the Dockerfile deploys.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 

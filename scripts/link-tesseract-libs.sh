@@ -24,18 +24,24 @@ fi
 
 command -v ldconfig >/dev/null || { echo "error: ldconfig not found" >&2; exit 1; }
 
+# Accepts several candidate sonames (first hit wins): newer distros rename the
+# leptonica soname (Ubuntu 26.04 ships libleptonica6 -> liblept.so.6), and this
+# script should keep working when the CI runner image moves ahead of prod.
 soname() {
-  local name="$1" path
-  path="$(ldconfig -p | awk -v name="$name" '$1 == name { print $NF; exit }')"
-  if [[ -z "$path" || ! -e "$path" ]]; then
-    echo "error: $name not found by ldconfig — install tesseract-ocr (tesseract 5 expected)" >&2
-    exit 1
-  fi
-  printf '%s\n' "$path"
+  local name path
+  for name in "$@"; do
+    path="$(ldconfig -p | awk -v name="$name" '$1 == name { print $NF; exit }')"
+    if [[ -n "$path" && -e "$path" ]]; then
+      printf '%s\n' "$path"
+      return 0
+    fi
+  done
+  echo "error: none of [$*] found by ldconfig — install tesseract-ocr (tesseract 5 expected)" >&2
+  exit 1
 }
 
 libtesseract="$(soname libtesseract.so.5)"
-liblept="$(soname liblept.so.5)"
+liblept="$(soname liblept.so.5 liblept.so.6)"
 libdl="$(soname libdl.so.2)"
 
 mkdir -p "$assemblies_dir/x64"
