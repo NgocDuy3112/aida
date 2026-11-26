@@ -35,8 +35,39 @@ public class DocumentService(
             await content.CopyToAsync(target, ct);
         }
 
-        await ingestor.IngestAsync(new FileInfo(path), safeName, ownerId, ct);
+        int chunks;
+        try
+        {
+            chunks = await ingestor.IngestAsync(new FileInfo(path), safeName, ownerId, ct);
+        }
+        catch
+        {
+            DeleteStoredFile(path, safeName);
+            throw;
+        }
+
+        if (chunks == 0)
+        {
+            DeleteStoredFile(path, safeName);
+            throw new InvalidOperationException(
+                $"'{safeName}' has no readable text — the file may be a scanned image or an empty document; " +
+                "it was not stored.");
+        }
+
         logger.LogInformation("Stored and ingested '{FileName}' for owner {OwnerId}.", safeName, ownerId);
         return safeName;
+    }
+
+    /// <summary>Removes a file whose ingestion failed, so an unreadable upload does not linger.</summary>
+    private void DeleteStoredFile(string path, string fileName)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not delete unreadable file '{FileName}'.", fileName);
+        }
     }
 }

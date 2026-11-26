@@ -322,7 +322,7 @@
         catch (Exception ex)
         {
             chatRunner.AttachedFiles.Remove(file.Name);
-            chatRunner.Status = $"Không đọc được file đó: {ex.Message}";
+            chatRunner.Status = $"Không đọc được file này — file có thể là ảnh scan hoặc rỗng. ({ex.Message})";
         }
     }
 
