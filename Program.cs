@@ -26,6 +26,7 @@ QuestPDF.Settings.ThrowOnMissingFontFamilies = false;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
+builder.Services.AddOpenApi();
 
 builder.Services.AddAppIdentity(builder.Configuration, builder.Environment);
 builder.Services.AddScoped<IConversationStore, ConversationStore>();
@@ -129,6 +130,7 @@ app.UseStaticFiles();
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 app.MapAuthEndpoints(app.Environment);
 app.MapDocumentEndpoints();
+app.MapOpenApi().AllowAnonymous();
 
 if (app.Configuration.GetValue<bool>("Database:AutoMigrate"))
 {

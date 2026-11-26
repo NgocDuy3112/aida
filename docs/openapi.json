@@ -1,0 +1,211 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "aida | v1",
+    "version": "1.0.0",
+    "description": "Hand-scaffolded snapshot of the HTTP endpoints exposed by the aida app. Replace with the generated document from GET /openapi/v1.json on first app run."
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "paths": {
+    "/account/external-login": {
+      "get": {
+        "operationId": "externalLogin",
+        "summary": "Start Google external login",
+        "tags": ["Account"],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "query",
+            "required": false,
+            "description": "External provider. Only \"Google\" is supported; any other value redirects to /login?error=provider.",
+            "schema": { "type": "string", "default": "Google" }
+          },
+          {
+            "name": "returnUrl",
+            "in": "query",
+            "required": false,
+            "description": "Local path to return to after sign-in. Must start with a single \"/\" (no protocol-relative or backslash tricks); otherwise falls back to \"/\".",
+            "schema": { "type": ["string", "null"] }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to the Google OAuth challenge, or to /login?error=notconfigured / /login?error=provider when Google sign-in is unavailable."
+          }
+        }
+      }
+    },
+    "/account/external-login-callback": {
+      "get": {
+        "operationId": "externalLoginCallback",
+        "summary": "Google external login callback",
+        "description": "Handles the redirect from Google. Creates the user on first sign-in, links the external login, syncs display name/avatar, promotes configured admin emails, then signs the user in.",
+        "tags": ["Account"],
+        "parameters": [
+          {
+            "name": "returnUrl",
+            "in": "query",
+            "required": false,
+            "description": "Local path to return to after sign-in; validated as above.",
+            "schema": { "type": ["string", "null"] }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to returnUrl on success, or to /login?error=external|email|create|unconfirmed|link on failure."
+          }
+        }
+      }
+    },
+    "/account/signout": {
+      "post": {
+        "operationId": "signout",
+        "summary": "Sign out the current user",
+        "tags": ["Account"],
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "302": { "description": "Redirect to /login after the identity cookie is cleared." }
+        }
+      }
+    },
+    "/account/password-signin": {
+      "post": {
+        "operationId": "passwordSignin",
+        "summary": "Sign in with email and password",
+        "tags": ["Account"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": { "$ref": "#/components/schemas/PasswordSigninRequest" }
+            }
+          }
+        },
+        "responses": {
+          "302": {
+            "description": "Redirect to returnUrl on success, or to /login?error=lockedout|googleonly|invalidcredentials on failure."
+          }
+        }
+      }
+    },
+    "/account/password-register": {
+      "post": {
+        "operationId": "passwordRegister",
+        "summary": "Register with email and password",
+        "tags": ["Account"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": { "$ref": "#/components/schemas/PasswordRegisterRequest" }
+            }
+          }
+        },
+        "responses": {
+          "302": {
+            "description": "Redirect to / on success, or to /login?error=invalid|mismatch|taken|weak on failure."
+          }
+        }
+      }
+    },
+    "/dev-login": {
+      "get": {
+        "operationId": "devLogin",
+        "summary": "Development-only auto sign-in",
+        "description": "Available only when the app runs in the Development environment. Signs in dev@localhost and grants the Admin role.",
+        "tags": ["Account"],
+        "responses": {
+          "302": { "description": "Redirect to / after signing in the dev user." }
+        }
+      }
+    },
+    "/documents/{name}": {
+      "get": {
+        "operationId": "getDocument",
+        "summary": "Download one of the current user's documents",
+        "tags": ["Documents"],
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "File name resolved inside the signed-in user's document directory.",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The document file.",
+            "content": {
+              "application/pdf": { "schema": { "type": "string", "format": "binary" } },
+              "text/markdown": { "schema": { "type": "string", "format": "binary" } },
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document": { "schema": { "type": "string", "format": "binary" } },
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": { "schema": { "type": "string", "format": "binary" } },
+              "application/octet-stream": { "schema": { "type": "string", "format": "binary" } }
+            }
+          },
+          "404": { "description": "No such document for the current user." }
+        }
+      }
+    },
+    "/openapi/v1.json": {
+      "get": {
+        "operationId": "getOpenApiDocument",
+        "summary": "Serve the OpenAPI document",
+        "description": "Generated by the built-in ASP.NET Core OpenAPI support (AddOpenApi/MapOpenApi).",
+        "tags": ["OpenAPI"],
+        "responses": {
+          "200": {
+            "description": "The OpenAPI 3.1 document for the default document name \"v1\".",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/OpenApiDocument" } }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": ".AspNetCore.Identity.Application"
+      }
+    },
+    "schemas": {
+      "PasswordSigninRequest": {
+        "type": "object",
+        "required": ["email", "password"],
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "password": { "type": "string", "format": "password" },
+          "returnUrl": { "type": ["string", "null"] }
+        }
+      },
+      "PasswordRegisterRequest": {
+        "type": "object",
+        "required": ["email", "password", "confirm"],
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "password": { "type": "string", "format": "password" },
+          "confirm": { "type": "string", "format": "password" }
+        }
+      },
+      "OpenApiDocument": {
+        "type": "object",
+        "required": ["openapi", "info", "paths"],
+        "properties": {
+          "openapi": { "type": "string" },
+          "info": { "type": "object" },
+          "paths": { "type": "object" }
+        }
+      }
+    }
+  }
+}
