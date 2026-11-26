@@ -17,8 +17,8 @@
         </div>
     </header>
 
-    <section class="settings-card">
-        <h2>Tài khoản</h2>
+    <section class="settings-card" aria-labelledby="settings-account-title">
+        <h2 id="settings-account-title">Tài khoản</h2>
         <div class="account-row">
             @if (!string.IsNullOrWhiteSpace(user?.AvatarUrl))
             {
@@ -49,23 +49,18 @@
         </div>
     </section>
 
-    <section class="settings-card">
+    <section class="settings-card" aria-labelledby="settings-crew-title">
         <div>
-            <h2>Mô hình Agent</h2>
+            <h2 id="settings-crew-title">Mô hình Agent</h2>
             <p class="settings-note">
                 Áp dụng cho mọi hội thoại của bạn — Researcher xử lý nghiên cứu,
                 Writer soạn thảo, thinking quyết định mức suy luận.
             </p>
         </div>
 
-        @if (!string.IsNullOrEmpty(status))
-        {
-            <p class="settings-status">@status</p>
-        }
-
         <div class="settings-row">
-            <span class="settings-label">Director · Thinking</span>
-            <select class="settings-select" value="@crew.DirectorThinking"
+            <label class="settings-label" for="crew-director-thinking">Director · Thinking</label>
+            <select id="crew-director-thinking" class="settings-select" value="@crew.DirectorThinking"
                     @onchange="e => UpdateCrew(c => c with { DirectorThinking = Value(e, c.DirectorThinking) })">
                 @foreach (var t in CrewOptions.ThinkingLevels)
                 {
@@ -75,8 +70,8 @@
         </div>
 
         <div class="settings-row">
-            <span class="settings-label">Researchers · Model</span>
-            <select class="settings-select" value="@crew.ResearcherModel"
+            <label class="settings-label" for="crew-researcher-model">Researchers · Model</label>
+            <select id="crew-researcher-model" class="settings-select" value="@crew.ResearcherModel"
                     @onchange="e => UpdateCrew(c => c with { ResearcherModel = Value(e, c.ResearcherModel) })">
                 @foreach (var m in ModelsFor(crew.ResearcherModel))
                 {
@@ -86,8 +81,8 @@
         </div>
 
         <div class="settings-row">
-            <span class="settings-label">Researchers · Thinking</span>
-            <select class="settings-select" value="@crew.ResearcherThinking"
+            <label class="settings-label" for="crew-researcher-thinking">Researchers · Thinking</label>
+            <select id="crew-researcher-thinking" class="settings-select" value="@crew.ResearcherThinking"
                     @onchange="e => UpdateCrew(c => c with { ResearcherThinking = Value(e, c.ResearcherThinking) })">
                 @foreach (var t in CrewOptions.ThinkingLevels)
                 {
@@ -97,8 +92,8 @@
         </div>
 
         <div class="settings-row">
-            <span class="settings-label">Writer · Model</span>
-            <select class="settings-select" value="@crew.WriterModel"
+            <label class="settings-label" for="crew-writer-model">Writer · Model</label>
+            <select id="crew-writer-model" class="settings-select" value="@crew.WriterModel"
                     @onchange="e => UpdateCrew(c => c with { WriterModel = Value(e, c.WriterModel) })">
                 @foreach (var m in ModelsFor(crew.WriterModel))
                 {
@@ -108,8 +103,8 @@
         </div>
 
         <div class="settings-row">
-            <span class="settings-label">Writer · Thinking</span>
-            <select class="settings-select" value="@crew.WriterThinking"
+            <label class="settings-label" for="crew-writer-thinking">Writer · Thinking</label>
+            <select id="crew-writer-thinking" class="settings-select" value="@crew.WriterThinking"
                     @onchange="e => UpdateCrew(c => c with { WriterThinking = Value(e, c.WriterThinking) })">
                 @foreach (var t in CrewOptions.ThinkingLevels)
                 {
@@ -118,8 +113,14 @@
             </select>
         </div>
 
+        @if (!string.IsNullOrEmpty(status))
+        {
+            <p class="settings-status@(status?.StartsWith("Không", StringComparison.Ordinal) == true ? " is-error" : "")"
+               role="status">@status</p>
+        }
+
         <div class="settings-actions">
-            <button type="button" class="settings-save" @onclick="SaveAsync">Lưu cài đặt</button>
+            <button type="button" class="settings-save" disabled="@(user is null)" @onclick="SaveAsync">Lưu cài đặt</button>
         </div>
     </section>
 </div>
