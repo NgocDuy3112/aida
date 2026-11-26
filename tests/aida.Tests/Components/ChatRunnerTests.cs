@@ -57,6 +57,54 @@ public class ChatRunnerTests
     }
 
     [Fact]
+    public async Task A_turn_over_the_daily_budget_is_blocked_before_any_model_call()
+    {
+        using var harness = ChatRunnerHarness.Create();
+        harness.DailyBudget.Status = new DailyBudgetStatus(BudgetState.Exceeded, 2.5m, 2m);
+
+        await harness.Runner.ProcessUserMessageAsync(new ChatMessage(ChatRole.User, "Câu hỏi"), append: true);
+
+        Assert.Equal(
+            "Hết ngân sách hôm nay (2.5/2$) — thử lại mai hoặc tăng Budget:DailyUsd.",
+            harness.Runner.Status);
+        Assert.Empty(harness.UserTexts());
+        Assert.Empty(harness.AssistantTexts());
+        Assert.Empty(harness.Store.Appended);
+        Assert.Null(harness.Runner.ConversationId);
+        Assert.Equal(0, harness.Models.StreamingRequestCount);
+    }
+
+    [Fact]
+    public async Task A_near_limit_budget_warns_but_lets_the_turn_run()
+    {
+        using var harness = ChatRunnerHarness.Create();
+        harness.DailyBudget.Status = new DailyBudgetStatus(BudgetState.NearLimit, 1.6m, 2m);
+        harness.Models.Answer("Đáp án");
+
+        await harness.Runner.ProcessUserMessageAsync(new ChatMessage(ChatRole.User, "Câu hỏi"), append: true);
+
+        Assert.Equal(["Đáp án"], harness.AssistantTexts());
+        Assert.Equal(
+            "Sắp hết ngân sách hôm nay (1.6/2$) — lượt này vẫn chạy.",
+            harness.Runner.Status);
+        Assert.Equal(1, harness.Models.StreamingRequestCount);
+    }
+
+    [Fact]
+    public async Task An_off_budget_leaves_the_turn_exactly_as_before()
+    {
+        using var harness = ChatRunnerHarness.Create();
+        harness.Models.Answer("Đáp án");
+
+        await harness.Runner.ProcessUserMessageAsync(new ChatMessage(ChatRole.User, "Câu hỏi"), append: true);
+
+        Assert.Equal(1, harness.DailyBudget.Calls);
+        Assert.Equal(["Đáp án"], harness.AssistantTexts());
+        Assert.Null(harness.Runner.Status);
+        Assert.NotNull(harness.Runner.ConversationId);
+    }
+
+    [Fact]
     public async Task Stopping_mid_stream_keeps_the_partial_answer_and_drops_the_rest_of_the_turn()
     {
         using var harness = ChatRunnerHarness.Create();
@@ -173,6 +221,7 @@ internal sealed class ChatRunnerHarness : IDisposable
 
         Store = new FakeConversationStore();
         RateLimiter = new FakeRateLimiter();
+        DailyBudget = new FakeDailyBudget();
         Broker = new AskUserBroker();
         Runner = new ChatRunner(
             View,
@@ -192,6 +241,7 @@ internal sealed class ChatRunnerHarness : IDisposable
                 NullLogger<DocumentService>.Instance),
             environment,
             RateLimiter,
+            DailyBudget,
             Usage,
             pricing,
             new ParallelResearchTool(
@@ -216,6 +266,8 @@ internal sealed class ChatRunnerHarness : IDisposable
     public FakeConversationStore Store { get; }
 
     public FakeRateLimiter RateLimiter { get; }
+
+    public FakeDailyBudget DailyBudget { get; }
 
     public FakeUsageTracker Usage { get; } = new();
 

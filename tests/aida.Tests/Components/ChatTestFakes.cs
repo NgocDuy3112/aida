@@ -198,6 +198,20 @@ internal sealed class FakeUsageTracker : IUsageTracker
     }
 }
 
+internal sealed class FakeDailyBudget : IDailyBudget
+{
+    /// <summary>The state the fake reports; <c>null</c> means the budget is off, like a deployment without it.</summary>
+    public DailyBudgetStatus? Status { get; set; }
+
+    public int Calls { get; private set; }
+
+    public Task<DailyBudgetStatus> CheckAsync(string userId, CancellationToken ct = default)
+    {
+        Calls++;
+        return Task.FromResult(Status ?? DailyBudgetStatus.Disabled);
+    }
+}
+
 internal sealed class FakeWebHostEnvironment(string contentRoot) : IWebHostEnvironment
 {
     public string ContentRootPath { get; set; } = contentRoot;

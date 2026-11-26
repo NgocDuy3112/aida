@@ -18,6 +18,7 @@
 @inject ILogger<Chat> Logger
 @inject UserManager<AppUser> UserManager
 @inject IChatRateLimiter RateLimiter
+@inject IDailyBudget DailyBudget
 @inject IUsageTracker UsageTracker
 @inject PricingTable Pricing
 @inject ParallelResearchTool ResearchTools
@@ -256,7 +257,7 @@
 
         chatRunner = new ChatRunner(
             this, Logger, Store, Search, Router, Config, OpenAi, Documents, Env,
-            RateLimiter, UsageTracker, Pricing, ResearchTools, CrewWriter, WebSearch, Ocr,
+            RateLimiter, DailyBudget, UsageTracker, Pricing, ResearchTools, CrewWriter, WebSearch, Ocr,
             askUserBroker);
 
         askUserBroker.Changed += OnAskUserChanged;

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.RegularExpressions;
 using aida.Data;
 using aida.Services;
@@ -56,6 +57,7 @@ internal sealed class ChatRunner
     private readonly IWebHostEnvironment env;
     private readonly ILogger logger;
     private readonly IChatRateLimiter rateLimiter;
+    private readonly IDailyBudget dailyBudget;
     private readonly IUsageTracker usageTracker;
     private readonly PricingTable pricing;
     private readonly ParallelResearchTool researchTools;
@@ -84,6 +86,7 @@ internal sealed class ChatRunner
         DocumentService documents,
         IWebHostEnvironment env,
         IChatRateLimiter rateLimiter,
+        IDailyBudget dailyBudget,
         IUsageTracker usageTracker,
         PricingTable pricing,
         ParallelResearchTool researchTools,
@@ -102,6 +105,7 @@ internal sealed class ChatRunner
         this.documents = documents;
         this.env = env;
         this.rateLimiter = rateLimiter;
+        this.dailyBudget = dailyBudget;
         this.usageTracker = usageTracker;
         this.pricing = pricing;
         this.researchTools = researchTools;
@@ -209,6 +213,19 @@ internal sealed class ChatRunner
             return;
         }
 
+        var budget = await dailyBudget.CheckAsync(UserId);
+        if (budget.State == BudgetState.Exceeded)
+        {
+            Status = $"Hết ngân sách hôm nay ({Usd(budget.SpentUsd)}/{Usd(budget.DailyUsd)}$) "
+                   + "— thử lại mai hoặc tăng Budget:DailyUsd.";
+            return;
+        }
+
+        var budgetWarning = budget.State == BudgetState.NearLimit
+            ? $"Sắp hết ngân sách hôm nay ({Usd(budget.SpentUsd)}/{Usd(budget.DailyUsd)}$) "
+              + "— lượt này vẫn chạy."
+            : null;
+
         ChatMessage? myResponse = null;
         TextContent? responseText = null;
         var usedModel = "unknown";
@@ -243,7 +260,7 @@ internal sealed class ChatRunner
                 await store.AppendAsync(turnConversation!.Value, UserId, "user", question);
             }
 
-            Status = null;
+            Status = budgetWarning;
             LastResponseFailed = false;
             ProcessSteps.Clear();
             view.ResetAskUserPanel();
@@ -469,6 +486,9 @@ internal sealed class ChatRunner
         Status = "Đã chuyển yêu cầu vào câu trả lời đang chạy…";
         return true;
     }
+
+    /// <summary>A dollar amount as the budget messages show it, e.g. <c>1.35</c>.</summary>
+    private static string Usd(decimal amount) => amount.ToString("0.##", CultureInfo.InvariantCulture);
 
     /// <summary>Points the live process panel at <paramref name="step"/>, skipping a repeat of the last one.</summary>
     private void AddStep(string step)

@@ -60,6 +60,8 @@ builder.Services.AddSingleton<IChatRateLimiter>(sp => new ChatRateLimiter(
     sp.GetRequiredService<ILogger<ChatRateLimiter>>()));
 
 builder.Services.AddSingleton<PricingTable>();
+builder.Services.AddSingleton(BudgetOptions.FromConfiguration(builder.Configuration));
+builder.Services.AddScoped<IDailyBudget, DailyBudgetService>();
 builder.Services.AddHttpClient(OpenRouterPricingService.HttpClientName);
 builder.Services.AddHostedService<OpenRouterPricingService>();
 builder.Services.AddScoped<IUsageTracker, UsageTracker>();

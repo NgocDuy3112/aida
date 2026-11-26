@@ -97,6 +97,7 @@ internal sealed class ChatTestHarness : IDisposable
 
         store ??= new FakeConversationStore();
         var rateLimiter = new FakeRateLimiter();
+        var dailyBudget = new FakeDailyBudget();
         var usage = new FakeUsageTracker();
         var userManager = new FakeUserManager();
         var config = ChatTestServices.Configuration();
@@ -111,6 +112,7 @@ internal sealed class ChatTestHarness : IDisposable
         context.Services.AddSingleton<IWebHostEnvironment>(environment);
         context.Services.AddSingleton<UserManager<AppUser>>(userManager);
         context.Services.AddSingleton<IChatRateLimiter>(rateLimiter);
+        context.Services.AddSingleton<IDailyBudget>(dailyBudget);
         context.Services.AddSingleton<IUsageTracker>(usage);
         context.Services.AddSingleton(new PricingTable());
         context.Services.AddSingleton(new OcrOptions());

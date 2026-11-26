@@ -47,6 +47,11 @@ docker compose up -d        # app + postgres + redis (all healthchecked)
 - **Database migrations**: compose applies them on boot (`Database__AutoMigrate=true`).
   For a local DB run `dotnet ef database update` once (pending: `AddUsageEvents`).
 - **Rate limit**: `RateLimit:ChatPerMinute` (default 20, `0` disables).
+- **Daily budget** (`Budget:*`): `Budget:DailyUsd` caps what one user may spend per **UTC**
+  day (default `0` = off, no spend is read and nothing changes). `Budget:WarningPercent`
+  (default 80) warns from that share of the limit but still runs the turn; at 100 % the turn
+  is refused with a status line. Spend is the `CostUsd` sum of the day's usage events, i.e.
+  the same dollars `/admin` reports; a failed read logs a warning and lets the turn through.
 - **Document OCR** (`Ocr:*`): `Ocr:MaxPages` (default 50) and `Ocr:OcrTimeoutSeconds`
   (default 120) bound a *scanned* PDF — a page limit only fires when a page actually
   needs OCR, so a long text PDF is still read. `Ocr:Enabled` (default true),
