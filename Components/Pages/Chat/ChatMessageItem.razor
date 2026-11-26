@@ -1,6 +1,7 @@
 @using System.Runtime.CompilerServices
 @using System.Text.RegularExpressions
 @using System.Linq
+@inject IJSRuntime JS
 
 @if (Message.Role == ChatRole.User)
 {
@@ -53,7 +54,8 @@
 }
 else if (Message.Role == ChatRole.Assistant)
 {
-    foreach (var content in Message.Contents)
+    <div class="assistant-turn">
+    @foreach (var content in Message.Contents)
     {
         if (content is TextContent { Text: { Length: > 0 } text })
         {
@@ -66,7 +68,7 @@ else if (Message.Role == ChatRole.Assistant)
                     </div>
                 </div>
                 <div class="assistant-message-header">Trợ lý</div>
-                <div class="assistant-message-text">
+                <div class="assistant-message-text" aria-live="@(InProgress ? "polite" : null)" aria-busy="@(InProgress ? "true" : null)">
                     <assistant-message markdown="@text"></assistant-message>
 
                     @foreach (var citation in citations ?? [])
@@ -108,6 +110,48 @@ else if (Message.Role == ChatRole.Assistant)
             </div>
         }
     }
+
+    @if (HasAssistantText && (Trace is not null || CanRegenerate))
+    {
+        <div class="assistant-message-actions">
+            @if (Trace is { } trace)
+            {
+                <button type="button" class="process-trace-chip"
+                        aria-expanded="@(traceOpen ? "true" : "false")"
+                        @onclick="() => traceOpen = !traceOpen">
+                    <svg class="process-trace-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="1.7" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                              d="M10.34 15.84a5 5 0 0 0 7.07 0l2.12-2.12a5 5 0 0 0-7.07-7.07l-1.42 1.41" />
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                              d="M13.66 8.16a5 5 0 0 0-7.07 0l-2.12 2.12a5 5 0 0 0 7.07 7.07l1.41-1.41" />
+                    </svg>
+                    <span>Đã dùng @trace.ToolCalls công cụ</span>
+                </button>
+                @if (traceOpen)
+                {
+                    <ul class="process-trace-steps">
+                        @foreach (var step in trace.Steps)
+                        {
+                            <li>@step</li>
+                        }
+                    </ul>
+                }
+            }
+            @if (CanRegenerate)
+            {
+                <button type="button" class="message-regenerate-btn" title="Tạo lại câu trả lời"
+                        aria-label="Tạo lại câu trả lời" @onclick="() => OnRegenerate.InvokeAsync()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                              d="M4 12a8 8 0 0 1 13.66-5.66L20 8m0-4v4h-4M20 12a8 8 0 0 1-13.66 5.66L4 16m0 4v-4h4" />
+                    </svg>
+                    <span>Tạo lại</span>
+                </button>
+            }
+        </div>
+    }
+    </div>
 }
 
 @code {
@@ -157,12 +201,36 @@ else if (Message.Role == ChatRole.Assistant)
 
     private async Task SaveEditAsync()
     {
+        if (string.Equals(draft.Trim(), (Message.Text ?? string.Empty).Trim(), StringComparison.Ordinal))
+        {
+            editing = false;
+            return;
+        }
+
+        var confirmed = await JS.InvokeAsync<bool>("confirm",
+            "Sửa tin nhắn sẽ xoá toàn bộ câu trả lời phía sau. Tiếp tục?");
+        if (!confirmed)
+            return;
+
         editing = false;
         await OnEdit.InvokeAsync((Message, draft));
     }
 
     [Parameter]
     public bool InProgress { get; set;}
+
+    [Parameter]
+    public ProcessTrace? Trace { get; set; }
+
+    [Parameter]
+    public bool CanRegenerate { get; set; }
+
+    [Parameter]
+    public EventCallback OnRegenerate { get; set; }
+
+    private bool traceOpen;
+
+    private bool HasAssistantText => !string.IsNullOrWhiteSpace(Message.Text);
 
     [Parameter]
     public int StreamVersion { get; set; }

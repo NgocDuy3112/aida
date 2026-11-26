@@ -45,30 +45,65 @@
     <main class="chat-main">
         <ChatHeader
         Title="@title"
+        Model="@activeModel"
         SidebarOpen="@sidebarOpen"
         OnToggleSidebar="() => sidebarOpen = !sidebarOpen"
         />
 
-        <ChatMessageList Messages="@messages" Attachments="@messageAttachments" Editable="@CanEditMessages" OnEditMessage="@EditUserMessageAsync" InProgressMessage="@currentResponseMessage" StreamVersion="@streamVersion" ProcessSteps="@processSteps">
+        <ChatMessageList Messages="@messages" Attachments="@messageAttachments" Editable="@CanEditMessages" OnEditMessage="@EditUserMessageAsync" InProgressMessage="@currentResponseMessage" StreamVersion="@streamVersion" ProcessSteps="@processSteps" Traces="@messageTraces" LastAssistantMessage="@LastAssistantMessage" OnRegenerate="@RegenerateAsync">
             <NoMessagesContent>
                 <div class="empty-state">
                     <h2>AIDA Agent</h2>
+                    <div class="empty-prompts">
+                        @foreach (var suggestion in EmptyStatePrompts)
+                        {
+                            var prompt = suggestion;
+                            <button type="button" class="empty-prompt"
+                                    @onclick="() => AddUserMessageAsync(new ChatMessage(ChatRole.User, prompt))">@prompt</button>
+                        }
+                    </div>
                 </div>
             </NoMessagesContent>
         </ChatMessageList>
 
         <div class="chat-container">
-            @if (status is not null)
+            @if (status is not null || (lastResponseFailed && currentResponseMessage is null))
             {
-                <p class="status">@status</p>
-            }
-            @if (pendingOptions.Count >= 2)
-            {
-                <div class="ask-user-panel" role="group" aria-label="Lựa chọn nhanh">
-                    @foreach (var option in pendingOptions)
+                <div class="status-row">
+                    @if (status is not null)
                     {
-                        <button type="button" class="ask-user-option" @onclick="() => AnswerQuizAsync(option)">@option</button>
+                        <p class="status">@status</p>
                     }
+                    @if (lastResponseFailed && currentResponseMessage is null)
+                    {
+                        <button type="button" class="status-retry" @onclick="RegenerateAsync">Thử lại</button>
+                    }
+                </div>
+            }
+            @if (pendingQuestion is not null || pendingOptions.Count > 0)
+            {
+                <div class="ask-user-panel" role="group" aria-label="Câu hỏi từ trợ lý">
+                    <span class="ask-user-badge">Câu hỏi</span>
+                    @if (pendingQuestion is not null)
+                    {
+                        <p class="ask-user-question">@pendingQuestion</p>
+                    }
+                    @if (pendingOptions.Count > 0)
+                    {
+                        <div class="ask-user-options">
+                            @foreach (var option in pendingOptions)
+                            {
+                                <button type="button" class="ask-user-option" @onclick="() => AnswerQuizAsync(option)">@option</button>
+                            }
+                        </div>
+                    }
+                    <form class="ask-user-form" @onsubmit="SubmitPendingAnswerAsync" @onsubmit:preventDefault>
+                        <input class="ask-user-input" @bind="pendingAnswer"
+                               placeholder="Trả lời của bạn" aria-label="Trả lời câu hỏi của trợ lý" />
+                        <button type="submit" class="ask-user-send"
+                                disabled="@(string.IsNullOrWhiteSpace(pendingAnswer))">Gửi</button>
+                        <button type="button" class="ask-user-skip" @onclick="SkipQuestion">Bỏ qua</button>
+                    </form>
                 </div>
             }
             <ChatInput
@@ -94,6 +129,8 @@
     private ChatInput? chatInput;
     private ChatSidebar? sidebar;
     private List<string> pendingOptions = [];
+    private string? pendingAnswer;
+    private bool lastResponseFailed;
 
     private string userId = string.Empty;
     private Guid? conversationId;
@@ -113,40 +150,60 @@
     }
     private string systemPrompt = string.Empty;
     private string? pinnedModel;
+    private string? activeModel;
     private int streamVersion;
     private bool sidebarOpen;
     private CrewState crew = null!;
 
     private readonly List<string> processSteps = [];
+    private readonly Dictionary<ChatMessage, ProcessTrace> messageTraces = [];
+    private readonly StreamRenderThrottle streamRenderThrottle =
+        new(StreamRenderThrottle.DefaultInterval);
+    private readonly Stopwatch streamClock = Stopwatch.StartNew();
 
-    private static string? ReadString(IDictionary<string, object?> a, string key) =>
-    a.TryGetValue(key, out var v)
-        ? v switch
-        {
-            string s => s,
-            System.Text.Json.JsonElement { ValueKind: System.Text.Json.JsonValueKind.String } e => e.GetString(),
-            _ => null
-        }
-        : null;
+    private static readonly string[] EmptyStatePrompts =
+    [
+        "Tóm tắt tài liệu đã tải lên",
+        "Tra cứu thông tin mới nhất",
+        "Soạn email trả lời khách hàng",
+        "Lập dàn ý báo cáo tuần",
+    ];
 
-    private static List<string> ReadStrings(IDictionary<string, object?> a, string key)
+    private ChatMessage? LastAssistantMessage
     {
-        if (!a.TryGetValue(key, out var v)) return [];
-        return v switch
+        get
         {
-            System.Text.Json.JsonElement { ValueKind: System.Text.Json.JsonValueKind.Array } e =>
-                e.EnumerateArray().Select(x => x.GetString()).OfType<string>().ToList(),
-            IEnumerable<object?> list => list.Select(x => x?.ToString()).OfType<string>().ToList(),
-            _ => []
-        };
+            if (currentResponseMessage is not null)
+                return null;
+
+            for (var i = messages.Count - 1; i >= 1; i--)
+            {
+                if (messages[i].Role == ChatRole.Assistant && !string.IsNullOrWhiteSpace(messages[i].Text))
+                    return messages[i];
+            }
+            return null;
+        }
     }
 
-    private Task AnswerQuizAsync(string option)
+    private Task AnswerQuizAsync(string answer)
     {
         pendingOptions = [];
         pendingQuestion = null;
+        pendingAnswer = null;
+        return AddUserMessageAsync(new ChatMessage(ChatRole.User, answer));
+    }
+
+    private Task SubmitPendingAnswerAsync()
+    {
+        var answer = pendingAnswer?.Trim();
+        return string.IsNullOrEmpty(answer) ? Task.CompletedTask : AnswerQuizAsync(answer);
+    }
+
+    private void SkipQuestion()
+    {
         pendingOptions = [];
-        return AddUserMessageAsync(new ChatMessage(ChatRole.User, option));
+        pendingQuestion = null;
+        pendingAnswer = null;
     }
 
     private void AddStep(string step)
@@ -256,9 +313,11 @@
             }
 
             status = null;
+            lastResponseFailed = false;
             processSteps.Clear();
             pendingQuestion = null;
             pendingOptions = [];
+            pendingAnswer = null;
             AddStep("Đang suy nghĩ…");
             await chatInput!.FocusAsync();
 
@@ -275,6 +334,7 @@
 
             var model = await modelTask;
             usedModel = model;
+            activeModel = model;
             var modelSource = "router";
             if (pinnedModel is not null)
                 modelSource = "pinned";
@@ -300,11 +360,15 @@
             var currentMessage = new ChatMessage(ChatRole.User, currentContents);
             var agentInput = BuildAgentInput(sessionFresh, currentMessage);
 
+            streamRenderThrottle.Reset();
+            streamClock.Restart();
             await foreach (var update in harness.RunStreamingAsync(
                 agentInput, session, cancellationToken: currentResponseCancellation.Token))
             {
                 await ProcessUpdateAsync(update.Text, update.Contents);
             }
+            streamClock.Stop();
+            await RenderStreamAsync();
 
             llmClock.Stop();
             if (!string.IsNullOrWhiteSpace(pendingQuestion))
@@ -313,6 +377,7 @@
                 ChatMessageItem.NotifyChanged(myResponse);
                 agentRuns.Remove(conversationId!.Value);
             }
+            RecordTrace(myResponse, toolCalls);
             messages.Add(myResponse);
             currentResponseMessage = null;
 
@@ -329,7 +394,7 @@
         {
             if (myResponse is not null && ReferenceEquals(currentResponseMessage, myResponse))
             {
-                messages.Add(myResponse);
+                AddResponseIfAnswered(myResponse, toolCalls);
                 currentResponseMessage = null;
             }
 
@@ -348,9 +413,10 @@
         {
             Logger.LogError(ex, "Failed to answer message.");
             status = "Đã có lỗi khi trả lời. Vui lòng thử lại.";
+            lastResponseFailed = true;
             if (myResponse is not null && ReferenceEquals(currentResponseMessage, myResponse))
             {
-                messages.Add(myResponse);
+                AddResponseIfAnswered(myResponse, toolCalls);
                 currentResponseMessage = null;
             }
 
@@ -368,6 +434,8 @@
 
         async Task ProcessUpdateAsync(string? text, IList<AIContent> contents)
         {
+            var changed = false;
+
             foreach (var item in contents)
             {
                 if (item is FunctionCallContent call)
@@ -377,27 +445,50 @@
                         call.Name, System.Text.Json.JsonSerializer.Serialize(call.Arguments));
                     if (call.Name == AskUserTool.Name && call.Arguments is { } args)
                     {
-                        pendingQuestion = ReadString(args, "question") ?? pendingQuestion;
-                        pendingOptions = ReadStrings(args, "options");
+                        pendingQuestion = AskUserArguments.Question(args) ?? pendingQuestion;
+                        pendingOptions = AskUserArguments.Options(args);
                         await chatInput!.FocusAsync();
                     }
                     else
                     {
                         AddStep($"Dùng {call.Name.Replace('_', ' ')}");
                     }
-                    streamVersion++;
-                    await InvokeAsync(StateHasChanged);
+                    changed = true;
                 }
             }
 
-            if (string.IsNullOrEmpty(text)) return;
+            if (!string.IsNullOrEmpty(text))
+            {
+                responseText!.Text += text;
+                AddStep("Đang tạo");
+                changed = true;
+            }
 
-            responseText!.Text += text;
-            AddStep("Đang tạo");
-            streamVersion++;
-            ChatMessageItem.NotifyChanged(myResponse!);
-            await InvokeAsync(StateHasChanged);
+            // Tokens keep accumulating above; the UI only re-renders on the throttle tick.
+            if (changed && streamRenderThrottle.TryAcquire(streamClock.ElapsedMilliseconds))
+                await RenderStreamAsync();
         }
+    }
+
+    private async Task RenderStreamAsync()
+    {
+        streamVersion++;
+        if (currentResponseMessage is not null)
+            ChatMessageItem.NotifyChanged(currentResponseMessage);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void AddResponseIfAnswered(ChatMessage response, int toolCalls)
+    {
+        if (string.IsNullOrWhiteSpace(response.Text)) return;
+        RecordTrace(response, toolCalls);
+        messages.Add(response);
+    }
+
+    private void RecordTrace(ChatMessage response, int toolCalls)
+    {
+        if (toolCalls == 0 || string.IsNullOrWhiteSpace(response.Text)) return;
+        messageTraces[response] = new ProcessTrace(toolCalls, [.. processSteps]);
     }
 
     private List<string> BuildSearchScope(string question)
@@ -637,6 +728,10 @@
         status = null;
         pendingQuestion = null;
         pendingOptions = [];
+        pendingAnswer = null;
+        lastResponseFailed = false;
+        activeModel = null;
+        messageTraces.Clear();
         processSteps.Clear();
         sidebarOpen = false;
         await sidebar!.ReloadAsync();
@@ -645,9 +740,35 @@
 
     private void CancelAnyCurrentResponse()
     {
-        if (currentResponseMessage is not null) messages.Add(currentResponseMessage);
+        if (currentResponseMessage is not null && !string.IsNullOrWhiteSpace(currentResponseMessage.Text))
+            messages.Add(currentResponseMessage);
         currentResponseCancellation?.Cancel();
         currentResponseMessage = null;
+    }
+
+    /// <summary>Re-runs the last user question after dropping the assistant replies that followed it.</summary>
+    private async Task RegenerateAsync()
+    {
+        if (currentResponseMessage is not null) return;
+        if (conversationId is null || string.IsNullOrWhiteSpace(userId)) return;
+
+        var lastUserIndex = messages.FindLastIndex(
+            m => m.Role == ChatRole.User && !string.IsNullOrWhiteSpace(m.Text));
+        if (lastUserIndex < 1) return;
+
+        for (var i = messages.Count - 1; i > lastUserIndex; i--)
+        {
+            messageAttachments.Remove(messages[i]);
+            messageTraces.Remove(messages[i]);
+            messages.RemoveAt(i);
+        }
+        await Store.DeleteMessagesFromAsync(conversationId.Value, userId, lastUserIndex + 1);
+
+        agentRuns.Remove(conversationId.Value);
+        streamVersion++;
+        await InvokeAsync(StateHasChanged);
+
+        await ProcessUserMessageAsync(messages[lastUserIndex], false);
     }
 
     private async Task ResetConversationAsync()
@@ -661,6 +782,10 @@
         status = null;
         pendingQuestion = null;
         pendingOptions = [];
+        pendingAnswer = null;
+        lastResponseFailed = false;
+        activeModel = null;
+        messageTraces.Clear();
         processSteps.Clear();
         sidebarOpen = false;
         if (sidebar is not null) await sidebar.ReloadAsync();
