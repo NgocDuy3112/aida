@@ -7,13 +7,20 @@ internal static class AskUserTool
 {
     internal const string Name = "ask_user";
 
-    internal const string Instructions =
-        "- Khi thiếu thông tin mà không thể suy ra hoặc tìm trong tài liệu, hãy gọi tool ask_user " +
-        "với một câu hỏi ngắn bằng tiếng Việt và 2-4 lựa chọn ngắn. Không viết câu hỏi vào phần trả lời. " +
-        "Chỉ gọi tối đa một lần mỗi lượt và không gọi tool khác cùng lúc. " +
-        "Nếu có thể trả lời trực tiếp thì không dùng tool này.";
+    internal const string Description =
+        "Hỏi người dùng một câu hỏi làm rõ khi yêu cầu mơ hồ hoặc thiếu thông tin. Tool trả về câu trả lời " +
+        "của người dùng ngay trong lượt này, nên chỉ gọi khi thật sự cần.";
 
-    private static readonly JsonElement Schema = JsonDocument.Parse("""
+    internal const string Instructions =
+        "- Khi thiếu thông tin mà không thể suy ra hoặc tìm trong tài liệu, hãy gọi tool ask_user với một câu hỏi " +
+        "ngắn bằng tiếng Việt, kèm 1-4 lựa chọn ngắn khi câu trả lời chỉ có vài khả năng. Tool trả về câu trả lời " +
+        "của người dùng ngay trong lượt này: chờ kết quả rồi viết tiếp câu trả lời. Có thể hỏi nhiều câu liên tiếp " +
+        "nếu cần, nhưng mỗi lần một câu và không hỏi lại điều đã có trong ngữ cảnh. Không viết câu hỏi vào phần " +
+        "trả lời. Nếu có thể trả lời trực tiếp thì không dùng tool này.";
+
+    internal const string MissingQuestionResult = "Error: ask_user needs a 'question'.";
+
+    internal static readonly JsonElement Schema = JsonDocument.Parse("""
         {
           "type": "object",
           "properties": {
@@ -21,18 +28,46 @@ internal static class AskUserTool
             "options": {
               "type": "array",
               "items": { "type": "string" },
-              "minItems": 2,
               "maxItems": 4,
-              "description": "2-4 lựa chọn ngắn, loại trừ lẫn nhau, bằng tiếng Việt."
+              "description": "1-4 lựa chọn ngắn, loại trừ lẫn nhau, bằng tiếng Việt. Bỏ trống nếu câu trả lời là văn bản tự do."
+            },
+            "allow_free_text": {
+              "type": "boolean",
+              "description": "Cho phép người dùng gõ câu trả lời tự do ngoài các lựa chọn. Mặc định true."
             }
           },
-          "required": ["question", "options"]
+          "required": ["question"]
         }
         """).RootElement.Clone();
 
-    internal static AIFunctionDeclaration Create() =>
-        AIFunctionFactory.CreateDeclaration(
-            Name,
-            "Hỏi người dùng một câu hỏi làm rõ (kèm lựa chọn) khi yêu cầu mơ hồ hoặc thiếu thông tin.",
-            Schema);
+    /// <summary>Builds the real ask_user tool: the call blocks on <paramref name="broker"/> until answered.</summary>
+    internal static AIFunction Create(AskUserBroker broker) => new AskUserFunction(broker);
+}
+
+internal sealed class AskUserFunction(AskUserBroker broker) : AIFunction
+{
+    public override string Name => AskUserTool.Name;
+
+    public override string Description => AskUserTool.Description;
+
+    public override JsonElement JsonSchema => AskUserTool.Schema;
+
+    protected override async ValueTask<object?> InvokeCoreAsync(
+        AIFunctionArguments arguments, CancellationToken cancellationToken)
+    {
+        var question = AskUserArguments.Question(arguments)?.Trim();
+        if (string.IsNullOrWhiteSpace(question))
+            return AskUserTool.MissingQuestionResult;
+
+        var options = AskUserArguments.Options(arguments)
+            .Where(option => !string.IsNullOrWhiteSpace(option))
+            .Take(4)
+            .ToList();
+
+        return await broker.AskAsync(
+            question,
+            options,
+            AskUserArguments.AllowFreeText(arguments),
+            cancellationToken).ConfigureAwait(false);
+    }
 }

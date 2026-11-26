@@ -93,15 +93,18 @@
                         <div class="ask-user-options">
                             @foreach (var option in pendingOptions)
                             {
-                                <button type="button" class="ask-user-option" @onclick="() => AnswerQuizAsync(option)">@option</button>
+                                <button type="button" class="ask-user-option" @onclick="() => AnswerQuestion(option)">@option</button>
                             }
                         </div>
                     }
                     <form class="ask-user-form" @onsubmit="SubmitPendingAnswerAsync" @onsubmit:preventDefault>
-                        <input class="ask-user-input" @bind="pendingAnswer"
-                               placeholder="Trả lời của bạn" aria-label="Trả lời câu hỏi của trợ lý" />
-                        <button type="submit" class="ask-user-send"
-                                disabled="@(string.IsNullOrWhiteSpace(pendingAnswer))">Gửi</button>
+                        @if (pendingAllowFreeText)
+                        {
+                            <input class="ask-user-input" @bind="pendingAnswer"
+                                   placeholder="Trả lời của bạn" aria-label="Trả lời câu hỏi của trợ lý" />
+                            <button type="submit" class="ask-user-send"
+                                    disabled="@(string.IsNullOrWhiteSpace(pendingAnswer))">Gửi</button>
+                        }
                         <button type="button" class="ask-user-skip" @onclick="SkipQuestion">Bỏ qua</button>
                     </form>
                 </div>
@@ -128,8 +131,10 @@
     private ChatMessage? currentResponseMessage;
     private ChatInput? chatInput;
     private ChatSidebar? sidebar;
+    private readonly AskUserBroker askUserBroker = new();
     private List<string> pendingOptions = [];
     private string? pendingAnswer;
+    private bool pendingAllowFreeText = true;
     private bool lastResponseFailed;
 
     private string userId = string.Empty;
@@ -185,25 +190,48 @@
         }
     }
 
-    private Task AnswerQuizAsync(string answer)
+    /// <summary>The ask_user tool is awaiting this answer inside the running turn.</summary>
+    private void AnswerQuestion(string answer)
     {
-        pendingOptions = [];
-        pendingQuestion = null;
-        pendingAnswer = null;
-        return AddUserMessageAsync(new ChatMessage(ChatRole.User, answer));
+        if (!askUserBroker.TryAnswer(answer)) return;
+        ResetPendingQuestion();
     }
 
     private Task SubmitPendingAnswerAsync()
     {
         var answer = pendingAnswer?.Trim();
-        return string.IsNullOrEmpty(answer) ? Task.CompletedTask : AnswerQuizAsync(answer);
+        if (!string.IsNullOrEmpty(answer)) AnswerQuestion(answer);
+        return Task.CompletedTask;
     }
 
     private void SkipQuestion()
     {
-        pendingOptions = [];
+        if (!askUserBroker.TryDecline()) return;
+        ResetPendingQuestion();
+    }
+
+    private void ResetPendingQuestion()
+    {
         pendingQuestion = null;
+        pendingOptions = [];
         pendingAnswer = null;
+        pendingAllowFreeText = true;
+    }
+
+    /// <summary>
+    /// Mirrors the broker's waiting question into the panel; the tool call blocks in the running turn
+    /// until the user answers or skips, so the agent session and iteration budget are kept.
+    /// </summary>
+    private void OnAskUserChanged(AskUserQuestion? question)
+    {
+        _ = InvokeAsync(() =>
+        {
+            pendingQuestion = question?.Question;
+            pendingOptions = question is null ? [] : [.. question.Options];
+            pendingAllowFreeText = question?.AllowFreeText ?? true;
+            pendingAnswer = null;
+            StateHasChanged();
+        });
     }
 
     private void AddStep(string step)
@@ -216,6 +244,8 @@
     {
         systemPrompt = File.ReadAllText(
             Path.Combine(Env.ContentRootPath, "prompts", "SYSTEM.md"));
+
+        askUserBroker.Changed += OnAskUserChanged;
 
         var state = await AuthState.GetAuthenticationStateAsync();
         userId = state.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
@@ -276,6 +306,12 @@
 
         await activeRun.Injector.EnqueueMessagesAsync(
             activeRun.Session, [userMessage], CancellationToken.None);
+        // Release a waiting ask_user so the injected message reaches the model instead of hanging.
+        if (askUserBroker.Pending is not null)
+        {
+            askUserBroker.TryDecline();
+            ResetPendingQuestion();
+        }
         status = "Đã chuyển yêu cầu vào câu trả lời đang chạy…";
         return true;
     }
@@ -315,9 +351,7 @@
             status = null;
             lastResponseFailed = false;
             processSteps.Clear();
-            pendingQuestion = null;
-            pendingOptions = [];
-            pendingAnswer = null;
+            ResetPendingQuestion();
             AddStep("Đang suy nghĩ…");
             await chatInput!.FocusAsync();
 
@@ -371,12 +405,8 @@
             await RenderStreamAsync();
 
             llmClock.Stop();
-            if (!string.IsNullOrWhiteSpace(pendingQuestion))
-            {
-                responseText.Text = pendingQuestion;
-                ChatMessageItem.NotifyChanged(myResponse);
-                agentRuns.Remove(conversationId!.Value);
-            }
+            askUserBroker.Cancel();
+            ResetPendingQuestion();
             RecordTrace(myResponse, toolCalls);
             messages.Add(myResponse);
             currentResponseMessage = null;
@@ -392,6 +422,8 @@
         }
         catch (OperationCanceledException)
         {
+            askUserBroker.Cancel();
+            ResetPendingQuestion();
             if (myResponse is not null && ReferenceEquals(currentResponseMessage, myResponse))
             {
                 AddResponseIfAnswered(myResponse, toolCalls);
@@ -412,6 +444,8 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to answer message.");
+            askUserBroker.Cancel();
+            ResetPendingQuestion();
             status = "Đã có lỗi khi trả lời. Vui lòng thử lại.";
             lastResponseFailed = true;
             if (myResponse is not null && ReferenceEquals(currentResponseMessage, myResponse))
@@ -443,10 +477,8 @@
                     toolCalls++;
                     Logger.LogDebug("FunctionCall: {Name} args={Args}",
                         call.Name, System.Text.Json.JsonSerializer.Serialize(call.Arguments));
-                    if (call.Name == AskUserTool.Name && call.Arguments is { } args)
+                    if (call.Name == AskUserTool.Name)
                     {
-                        pendingQuestion = AskUserArguments.Question(args) ?? pendingQuestion;
-                        pendingOptions = AskUserArguments.Options(args);
                         await chatInput!.FocusAsync();
                     }
                     else
@@ -622,7 +654,8 @@
             ChatDocumentTools.CreateSaveDocument(userId, Documents, GoogleWorkspace, UserManager),
             ResearchTools.Create(userId, crew.ResearcherModel, crew.ResearcherThinking),
             CrewWriter.Create(userId, crew.WriterModel, crew.WriterThinking),
-            AskUserTool.Create(),
+            AskUserTool.Create(askUserBroker),
+            ToolSearchTool.Create(),
         ];
 
         var search = WebSearch.Create();
@@ -726,9 +759,7 @@
         conversationId = id;
         title = summary?.Title;
         status = null;
-        pendingQuestion = null;
-        pendingOptions = [];
-        pendingAnswer = null;
+        ResetPendingQuestion();
         lastResponseFailed = false;
         activeModel = null;
         messageTraces.Clear();
@@ -740,6 +771,9 @@
 
     private void CancelAnyCurrentResponse()
     {
+        // Releases a tool call waiting on the user, so a stopped turn cannot hang the session.
+        askUserBroker.Cancel();
+        ResetPendingQuestion();
         if (currentResponseMessage is not null && !string.IsNullOrWhiteSpace(currentResponseMessage.Text))
             messages.Add(currentResponseMessage);
         currentResponseCancellation?.Cancel();
@@ -780,9 +814,7 @@
         pinnedModel = null;
         title = null;
         status = null;
-        pendingQuestion = null;
-        pendingOptions = [];
-        pendingAnswer = null;
+        ResetPendingQuestion();
         lastResponseFailed = false;
         activeModel = null;
         messageTraces.Clear();
@@ -794,6 +826,8 @@
 
     public void Dispose()
     {
+        askUserBroker.Changed -= OnAskUserChanged;
+        askUserBroker.Cancel();
         currentResponseCancellation?.Cancel();
     }
 }

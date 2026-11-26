@@ -1,10 +1,10 @@
 using System.Text.Json;
 
-namespace aida.Components.Pages.Chat;
+namespace aida.Services.Agents;
 
 /// <summary>
-/// ask_user arguments arrive as plain objects from the local tool declaration and as
-/// <see cref="JsonElement"/> values from the streaming response; read both shapes here.
+/// ask_user arguments arrive as plain objects from the local model and as <see cref="JsonElement"/>
+/// values from the streaming response; read both shapes here.
 /// </summary>
 internal static class AskUserArguments
 {
@@ -13,6 +13,9 @@ internal static class AskUserArguments
 
     public static List<string> Options(IDictionary<string, object?> arguments) =>
         ReadStrings(arguments, "options");
+
+    public static bool AllowFreeText(IDictionary<string, object?> arguments) =>
+        ReadBool(arguments, "allow_free_text") ?? true;
 
     public static string? ReadString(IDictionary<string, object?> arguments, string key) =>
         arguments.TryGetValue(key, out var value)
@@ -23,6 +26,19 @@ internal static class AskUserArguments
                 _ => null
             }
             : null;
+
+    public static bool? ReadBool(IDictionary<string, object?> arguments, string key)
+    {
+        if (!arguments.TryGetValue(key, out var value)) return null;
+
+        return value switch
+        {
+            bool flag => flag,
+            JsonElement { ValueKind: JsonValueKind.True } => true,
+            JsonElement { ValueKind: JsonValueKind.False } => false,
+            _ => null
+        };
+    }
 
     public static List<string> ReadStrings(IDictionary<string, object?> arguments, string key)
     {

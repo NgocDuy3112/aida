@@ -1,0 +1,113 @@
+namespace aida.Services.Agents;
+
+/// <summary>A question the agent is waiting on, as rendered by the chat panel.</summary>
+internal sealed record AskUserQuestion(long Id, string Question, IReadOnlyList<string> Options, bool AllowFreeText);
+
+/// <summary>
+/// Bridges the blocking ask_user tool call and the chat UI. The tool registers a question and awaits
+/// it inside the running agent turn; the UI answers or declines it. Cancellation (<see cref="Cancel"/>)
+/// releases a waiting tool so a stopped, steered or disposed conversation never leaves the turn hung.
+/// </summary>
+internal sealed class AskUserBroker
+{
+    internal const string DeclinedAnswer = "user declined to answer";
+
+    private sealed class Waiting(AskUserQuestion question)
+    {
+        public AskUserQuestion Question { get; } = question;
+
+        public TaskCompletionSource<string> Answer { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    private readonly object gate = new();
+    private Waiting? current;
+    private long nextId;
+
+    /// <summary>Raised when the waiting question changes; <c>null</c> means nothing is waiting.</summary>
+    public event Action<AskUserQuestion?>? Changed;
+
+    public AskUserQuestion? Pending
+    {
+        get { lock (gate) return current?.Question; }
+    }
+
+    /// <summary>
+    /// Registers <paramref name="question"/> and waits for the answer. Returns the user's text, or
+    /// <see cref="DeclinedAnswer"/> when the user skips. Throws <see cref="OperationCanceledException"/>
+    /// when <paramref name="ct"/> or <see cref="Cancel"/> releases the question.
+    /// </summary>
+    public async Task<string> AskAsync(
+        string question, IReadOnlyList<string> options, bool allowFreeText, CancellationToken ct)
+    {
+        Waiting pending;
+        lock (gate)
+        {
+            pending = new Waiting(new AskUserQuestion(++nextId, question, options, allowFreeText));
+            var replaced = current;
+            current = pending;
+            // A second concurrent call can only mean the previous question lost its panel.
+            replaced?.Answer.TrySetResult(DeclinedAnswer);
+        }
+
+        RaiseChanged(pending.Question);
+        try
+        {
+            using var registration = ct.Register(() => pending.Answer.TrySetCanceled(ct));
+            return await pending.Answer.Task.ConfigureAwait(false);
+        }
+        finally
+        {
+            ClearIfCurrent(pending);
+        }
+    }
+
+    /// <summary>Completes the waiting question with <paramref name="answer"/>; false when nothing waits.</summary>
+    public bool TryAnswer(string answer)
+    {
+        Waiting? pending;
+        lock (gate)
+        {
+            pending = current;
+            current = null;
+        }
+
+        if (pending is null) return false;
+
+        var accepted = pending.Answer.TrySetResult(answer.Trim());
+        RaiseChanged(null);
+        return accepted;
+    }
+
+    /// <summary>Answers the waiting question with <see cref="DeclinedAnswer"/>.</summary>
+    public bool TryDecline() => TryAnswer(DeclinedAnswer);
+
+    /// <summary>Releases a waiting question by cancelling it, so the tool call does not hang.</summary>
+    public void Cancel()
+    {
+        Waiting? pending;
+        lock (gate)
+        {
+            pending = current;
+            current = null;
+        }
+
+        if (pending is null) return;
+
+        pending.Answer.TrySetCanceled();
+        RaiseChanged(null);
+    }
+
+    private void ClearIfCurrent(Waiting pending)
+    {
+        lock (gate)
+        {
+            if (!ReferenceEquals(current, pending)) return;
+            current = null;
+        }
+
+        RaiseChanged(null);
+    }
+
+    private void RaiseChanged(AskUserQuestion? question) => Changed?.Invoke(question);
+}

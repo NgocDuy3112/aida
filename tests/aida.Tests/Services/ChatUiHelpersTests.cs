@@ -1,5 +1,6 @@
 using System.Text.Json;
 using aida.Components.Pages.Chat;
+using aida.Services.Agents;
 
 namespace aida.Tests.Services;
 
