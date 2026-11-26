@@ -15,6 +15,12 @@ public interface IConversationStore
     Task<ConversationSummary> CreateAsync(string userId, CancellationToken ct = default);
     Task<IReadOnlyList<ChatMessageRecord>> LoadMessagesAsync(Guid conversationId, string userId, CancellationToken ct = default);
     Task AppendAsync(Guid conversationId, string userId, string role, string text, string? kind = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Appends <paramref name="rows"/> in order in one write, so they either all land with consecutive
+    /// ordinals or none of them does.
+    /// </summary>
+    Task AppendManyAsync(Guid conversationId, string userId, IReadOnlyList<ChatMessageRecord> rows, CancellationToken ct = default);
     Task UpdateMessageAsync(Guid conversationId, string userId, int ordinal, string text, CancellationToken ct = default);
     Task DeleteMessagesFromAsync(Guid conversationId, string userId, int ordinal, CancellationToken ct = default);
     Task RenameAsync(Guid conversationId, string userId, string title, CancellationToken ct = default);

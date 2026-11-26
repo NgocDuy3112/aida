@@ -167,6 +167,81 @@ public class ChatAskUserPersistTests
     }
 
     [Fact]
+    public async Task Editing_the_question_asked_drops_the_exchange_and_keeps_the_store_in_step()
+    {
+        var store = new FakeConversationStore();
+        var conversation = await SeedExchangeAsync(store);
+
+        using var harness = ChatTestHarness.Render(store: store);
+        harness.Models.Answer("Bản mới sau khi sửa.");
+        await harness.OpenAsync(conversation);
+
+        const string Edited = "Liệt kê các mục chính";
+        var asked = harness.Messages.First(
+            m => m.Role == ChatRole.User && !AskUserTranscript.IsExchange(m));
+        await harness.EditMessageAsync(asked, Edited);
+
+        harness.Page.WaitForAssertion(() => Assert.Equal([Edited], harness.UserTexts()));
+        // The question and the answer it was given sat behind the edited message, so the edit dropped
+        // them from both the transcript and the store, and it updated the row the transcript edited.
+        Assert.Equal(
+            [("user", Edited, null), ("assistant", "Bản mới sau khi sửa.", null)],
+            harness.Store.MessagesOf(conversation).Select(r => (r.Role, r.Text, r.Kind)).ToArray());
+        Assert.Equal(["Bản mới sau khi sửa."], harness.AssistantTexts());
+        // One row per transcript message: the store ordinal still equals the transcript index.
+        Assert.Equal(harness.Messages.Count - 1, harness.Store.MessagesOf(conversation).Count);
+    }
+
+    [Fact]
+    public async Task A_store_failure_keeps_the_turn_alive()
+    {
+        using var harness = ChatTestHarness.Render();
+        harness.Models.AskUser(Question, ["Tóm tắt", Answer]).Answer(Reply);
+
+        var turn = harness.StartSendAsync(Ask);
+        harness.Page.WaitForAssertion(() => Assert.NotEmpty(harness.Page.FindAll(".ask-user-option")));
+
+        // The exchange write fails; the answer already reached the model, so the turn must keep going.
+        harness.Store.FailNextAppends = 1;
+        harness.Page.FindAll(".ask-user-option")[1].Click();
+        await turn;
+
+        Assert.False(harness.Runner.LastResponseFailed);
+        harness.Page.WaitForAssertion(() => Assert.Equal([Reply], harness.AssistantTexts()));
+        Assert.Equal([Ask], harness.UserTexts());
+        Assert.Equal(
+            [("user", Ask, null), ("assistant", Reply, null)],
+            harness.Store.MessagesOf(harness.ConversationId!.Value)
+                .Select(r => (r.Role, r.Text, r.Kind)).ToArray());
+    }
+
+    [Fact]
+    public async Task An_exchange_of_another_conversation_is_stored_but_not_rendered()
+    {
+        using var harness = ChatRunnerHarness.Create();
+        var asked = await harness.Store.CreateAsync(ChatTestHarness.UserId);
+        var open = await harness.Store.CreateAsync(ChatTestHarness.UserId);
+        // The turn moved to another conversation while the question was still waiting.
+        harness.Runner.ConversationId = open.Id;
+        var before = harness.Runner.Messages.Count;
+
+        await harness.Runner.RecordAskUserExchangeAsync(
+            asked.Id,
+            new AskUserExchange(new AskUserQuestion(1, Question, [], true), AskUserOutcome.Answered, Answer));
+
+        // The turn keeps its rows in its own conversation and does not write into the open transcript.
+        Assert.Equal(
+            [
+                ("assistant", Question, AskUserTranscript.QuestionKind),
+                ("user", Answer, AskUserTranscript.AnswerKind),
+            ],
+            (await harness.Store.LoadMessagesAsync(asked.Id, ChatTestHarness.UserId))
+                .Select(r => (r.Role, r.Text, r.Kind)).ToArray());
+        Assert.Equal(before, harness.Runner.Messages.Count);
+        Assert.Empty(await harness.Store.LoadMessagesAsync(open.Id, ChatTestHarness.UserId));
+    }
+
+    [Fact]
     public async Task Two_questions_in_one_turn_are_stored_in_the_order_they_were_asked()
     {
         using var harness = ChatTestHarness.Render();

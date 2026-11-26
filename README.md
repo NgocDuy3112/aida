@@ -70,7 +70,7 @@ docker compose up -d        # app + postgres + redis (all healthchecked)
 ### Tests — OCR integration test and image smoke check
 
 ```sh
-dotnet test                       # 278 tests; the OCR IT self-skips unless AIDA_OCR_IT=1
+dotnet test                       # the OCR IT self-skips unless AIDA_OCR_IT=1
 ./scripts/ocr-it.sh               # OCR IT in a Linux container (podman + dotnet SDK image + tesseract vie/eng)
 ./scripts/smoke-ocr.sh [--keep]   # build the app image, check tesseract/vie/aliases inside it, remove it
 ```

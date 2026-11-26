@@ -35,6 +35,12 @@ internal sealed class FakeConversationStore : IConversationStore
     public List<(Guid ConversationId, string Role, string Text, string? Kind)> Appended { get; } = [];
     public List<(Guid ConversationId, int Ordinal)> DeletedFrom { get; } = [];
 
+    /// <summary>
+    /// When set, that many upcoming append calls throw instead of writing — proves a store failure does
+    /// not fail the turn.
+    /// </summary>
+    public int FailNextAppends { get; set; }
+
     public IReadOnlyList<ChatMessageRecord> MessagesOf(Guid id) =>
         messages.TryGetValue(id, out var rows)
             ? [.. rows.OrderBy(r => r.Ordinal).Select(r => r.Record)]
@@ -57,12 +63,26 @@ internal sealed class FakeConversationStore : IConversationStore
 
     public Task AppendAsync(
         Guid conversationId, string userId, string role, string text, string? kind = null,
+        CancellationToken ct = default) =>
+        AppendManyAsync(conversationId, userId, [new ChatMessageRecord(role, text, kind)], ct);
+
+    public Task AppendManyAsync(
+        Guid conversationId, string userId, IReadOnlyList<ChatMessageRecord> records,
         CancellationToken ct = default)
     {
-        Appended.Add((conversationId, role, text, kind));
+        if (FailNextAppends > 0)
+        {
+            FailNextAppends--;
+            throw new InvalidOperationException("The store is unavailable.");
+        }
+
         var rows = messages[conversationId];
-        var next = rows.Count == 0 ? 1 : rows.Max(r => r.Ordinal) + 1;
-        rows.Add((next, new ChatMessageRecord(role, text, kind)));
+        foreach (var record in records)
+        {
+            Appended.Add((conversationId, record.Role, record.Text, record.Kind));
+            var next = rows.Count == 0 ? 1 : rows.Max(r => r.Ordinal) + 1;
+            rows.Add((next, record));
+        }
         return Task.CompletedTask;
     }
 

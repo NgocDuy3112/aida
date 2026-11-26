@@ -170,6 +170,8 @@
 
     Task IChatTurnView.RenderAsync() => InvokeAsync(StateHasChanged);
 
+    Task IChatTurnView.InvokeAsync(Action action) => InvokeAsync(action);
+
     async Task IChatTurnView.RenderStreamAsync()
     {
         streamVersion++;

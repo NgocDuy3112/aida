@@ -25,6 +25,12 @@ internal interface IChatTurnView
     /// <summary>The model pinned in the composer, if any; it replaces the router's choice.</summary>
     string? PinnedModel { get; }
 
+    /// <summary>
+    /// Runs <paramref name="action"/> on the renderer's dispatcher, the thread a render enumerates the
+    /// transcript on, so work that resumes on a thread-pool thread can still change it safely.
+    /// </summary>
+    Task InvokeAsync(Action action);
+
     /// <summary>Re-renders the page.</summary>
     Task RenderAsync();
 
@@ -434,10 +440,14 @@ internal sealed class ChatRunner
 
         try
         {
-            await store.AppendAsync(
-                conversationId, UserId, "assistant", exchange.Question.Question, AskUserTranscript.QuestionKind);
-            await store.AppendAsync(
-                conversationId, UserId, "user", exchange.Answer, AskUserTranscript.KindOf(exchange.Outcome));
+            // Both rows in one write: a question row that commits without its answer row would shift
+            // every later ordinal against the transcript, and editing relies on them matching.
+            await store.AppendManyAsync(conversationId, UserId,
+            [
+                new ChatMessageRecord("assistant", exchange.Question.Question,
+                    AskUserTranscript.QuestionKind),
+                new ChatMessageRecord("user", exchange.Answer, AskUserTranscript.KindOf(exchange.Outcome)),
+            ]);
         }
         catch (Exception ex)
         {
@@ -449,8 +459,13 @@ internal sealed class ChatRunner
         // A turn that moved to another conversation keeps its rows, but must not write into that transcript.
         if (ConversationId != conversationId) return;
 
-        Messages.Add(question);
-        Messages.Add(answer);
+        // This continuation resumes on a thread-pool thread (AskAsync awaits without the dispatcher's
+        // context), so the transcript the page may be rendering must only change on the dispatcher.
+        await view.InvokeAsync(() =>
+        {
+            Messages.Add(question);
+            Messages.Add(answer);
+        });
         await view.RenderAsync();
     }
 
@@ -461,19 +476,33 @@ internal sealed class ChatRunner
         if (!agentRuns.TryGetValue(ConversationId.Value, out var activeRun)) return false;
 
         var question = userMessage.Text ?? string.Empty;
-        // The steer replaces the waiting question, so the question is stored first and the steer message
-        // (already stored below as the user's own message) is what answers it: one row each, no repeat.
-        if (askUserBroker.Pending is { } pending)
+        var pendingQuestion = askUserBroker.Pending;
+        // The steer replaces the waiting question, so the question row is written first and the steer
+        // message is what answers it: one row each, no repeat, in one write.
+        List<ChatMessageRecord> rows = pendingQuestion is null
+            ? [new ChatMessageRecord("user", question)]
+            :
+            [
+                new ChatMessageRecord("assistant", pendingQuestion.Question, AskUserTranscript.QuestionKind),
+                new ChatMessageRecord("user", question),
+            ];
+        try
         {
-            await store.AppendAsync(
-                ConversationId.Value, UserId, "assistant", pending.Question, AskUserTranscript.QuestionKind);
-            Messages.Add(AskUserTranscript.Question(pending.Question));
+            // One write for both rows, with the same fail-open rule as the answered exchange: a store
+            // failure must not fail a turn the user can keep running.
+            await store.AppendManyAsync(ConversationId.Value, UserId, rows);
         }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not store the steer message of {Conversation}.", ConversationId);
+        }
+
+        if (pendingQuestion is not null)
+            Messages.Add(AskUserTranscript.Question(pendingQuestion.Question));
 
         Messages.Add(userMessage);
         if (AttachedFiles.Count > 0)
             MessageAttachments[userMessage] = new List<string>(AttachedFiles);
-        await store.AppendAsync(ConversationId.Value, UserId, "user", question);
 
         await activeRun.Injector.EnqueueMessagesAsync(
             activeRun.Session, [userMessage], CancellationToken.None);

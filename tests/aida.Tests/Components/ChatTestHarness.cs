@@ -162,6 +162,11 @@ internal sealed class ChatTestHarness : IDisposable
         Context.Renderer.Dispatcher.InvokeAsync(
             () => Page.FindComponent<ChatMessageList>().Instance.OnRegenerate.InvokeAsync());
 
+    /// <summary>Saves an edit on a transcript message, exactly like the edit box's save button.</summary>
+    public Task EditMessageAsync(ChatMessage message, string text) =>
+        Context.Renderer.Dispatcher.InvokeAsync(
+            () => Page.FindComponent<ChatMessageList>().Instance.OnEditMessage.InvokeAsync((message, text)));
+
     public IReadOnlyList<string> AssistantTexts() =>
         [.. Messages.Where(m => m.Role == ChatRole.Assistant).Select(m => m.Text ?? string.Empty)];
 

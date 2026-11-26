@@ -187,6 +187,13 @@ internal sealed class FakeChatTurnView : IChatTurnView
         return Task.CompletedTask;
     }
 
+    /// <summary>Nothing renders, so the dispatcher the page would use is the caller's thread.</summary>
+    Task IChatTurnView.InvokeAsync(Action action)
+    {
+        action();
+        return Task.CompletedTask;
+    }
+
     Task IChatTurnView.RenderStreamAsync()
     {
         StreamRenderCount++;

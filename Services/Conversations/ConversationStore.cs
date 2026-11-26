@@ -63,10 +63,17 @@ public class ConversationStore(
                 .Select(m => new ChatMessageRecord(m.Role, m.Text, m.Kind))
                 .ToListAsync(ct), ct);
 
-    public async Task AppendAsync(
+    public Task AppendAsync(
         Guid conversationId, string userId, string role, string text, string? kind = null,
+        CancellationToken ct = default) =>
+        AppendManyAsync(conversationId, userId, [new ChatMessageRecord(role, text, kind)], ct);
+
+    public async Task AppendManyAsync(
+        Guid conversationId, string userId, IReadOnlyList<ChatMessageRecord> rows,
         CancellationToken ct = default)
     {
+        if (rows.Count == 0) return;
+
         await WithDbAsync(async db =>
         {
             var conversation = await db.Conversations
@@ -77,14 +84,17 @@ public class ConversationStore(
                 .Where(m => m.ConversationId == conversationId)
                 .Select(m => (int?)m.Ordinal).MaxAsync(ct) ?? 0;
 
-            db.ChatMessages.Add(new ChatMessageRow
+            for (var i = 0; i < rows.Count; i++)
             {
-                ConversationId = conversationId,
-                Role = role,
-                Text = text,
-                Kind = kind,
-                Ordinal = next + 1
-            });
+                db.ChatMessages.Add(new ChatMessageRow
+                {
+                    ConversationId = conversationId,
+                    Role = rows[i].Role,
+                    Text = rows[i].Text,
+                    Kind = rows[i].Kind,
+                    Ordinal = next + 1 + i
+                });
+            }
             conversation.UpdatedAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(ct);
             return true;
