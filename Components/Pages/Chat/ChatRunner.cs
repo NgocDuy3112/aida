@@ -426,7 +426,7 @@ internal sealed class ChatRunner
     }
 
     /// <summary>Points the live process panel at <paramref name="step"/>, skipping a repeat of the last one.</summary>
-    public void AddStep(string step)
+    private void AddStep(string step)
     {
         if (ProcessSteps.Count == 0 || ProcessSteps[^1] != step)
             ProcessSteps.Add(step);
@@ -625,7 +625,7 @@ internal sealed class ChatRunner
     }
 
     /// <summary>Adds the documents the answer linked to, so they show as attachments of the chat.</summary>
-    public void AttachGeneratedDocuments(string responseText)
+    private void AttachGeneratedDocuments(string responseText)
     {
         foreach (Match match in Regex.Matches(responseText, "/documents/([^)\\]\\s\"']+)"))
         {

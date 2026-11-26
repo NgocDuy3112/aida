@@ -47,6 +47,10 @@ docker compose up -d        # app + postgres + redis (all healthchecked)
 - **Database migrations**: compose applies them on boot (`Database__AutoMigrate=true`).
   For a local DB run `dotnet ef database update` once (pending: `AddUsageEvents`).
 - **Rate limit**: `RateLimit:ChatPerMinute` (default 20, `0` disables).
+- **Document OCR** (`Ocr:*`): `Ocr:MaxPages` (default 50) and `Ocr:OcrTimeoutSeconds`
+  (default 120) bound a *scanned* PDF — a page limit only fires when a page actually
+  needs OCR, so a long text PDF is still read. `Ocr:Enabled` (default true),
+  `Ocr:Language` (default `vie+eng`) and `Ocr:MinLettersPerPage` (default 20) sit beside them.
 - **Model pricing**: fetched live from the OpenRouter catalog
   (`GET /api/v1/models`) at boot and every 6 h — no prices in config. Models
   absent from the catalog show as "unpriced" in `/admin`; a failed refresh

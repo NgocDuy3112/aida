@@ -184,12 +184,6 @@ namespace aida.Migrations
                     b.Property<bool>("EmailConfirmed")
                         .HasColumnType("boolean");
 
-                    b.Property<string>("GoogleRefreshToken")
-                        .HasColumnType("text");
-
-                    b.Property<DateTime?>("GoogleRefreshTokenObtainedUtc")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<bool>("LockoutEnabled")
                         .HasColumnType("boolean");
 
