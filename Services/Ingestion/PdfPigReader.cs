@@ -22,14 +22,28 @@ internal sealed class PdfPigReader(IPdfOcrEngine? ocrEngine = null, OcrOptions? 
 
         try
         {
+            // The timeout covers the whole document: PdfPig reads pages one by one and the OCR engine
+            // cannot be interrupted inside Process(), so failing between pages is the granularity we get.
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(_ocrOptions.OcrTimeoutSeconds));
+            var token = timeout.Token;
+
             using var pdf = PdfDocument.Open(source);
+            FailIfTooManyPages(pdf.NumberOfPages, identifier);
+
             var document = new IngestionDocument(identifier);
             foreach (var page in pdf.GetPages())
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                document.Sections.Add(await GetPageSectionAsync(page, identifier, engine, cancellationToken));
+                token.ThrowIfCancellationRequested();
+                document.Sections.Add(await GetPageSectionAsync(page, identifier, engine, token));
             }
             return document;
+        }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new InvalidOperationException(
+                $"Reading '{identifier}' timed out after {_ocrOptions.OcrTimeoutSeconds}s " +
+                "(Ocr:OcrTimeoutSeconds); the document is too large or its scans take too long to OCR.", ex);
         }
         finally
         {
@@ -38,6 +52,18 @@ internal sealed class PdfPigReader(IPdfOcrEngine? ocrEngine = null, OcrOptions? 
                 (engine as IDisposable)?.Dispose();
             }
         }
+    }
+
+    private void FailIfTooManyPages(int pageCount, string identifier)
+    {
+        if (pageCount <= _ocrOptions.MaxPages)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"'{identifier}' has {pageCount} pages but Ocr:MaxPages is {_ocrOptions.MaxPages}; " +
+            "split the document or raise the limit.");
     }
 
     private async Task<IngestionDocumentSection> GetPageSectionAsync(
@@ -89,6 +115,7 @@ internal sealed class PdfPigReader(IPdfOcrEngine? ocrEngine = null, OcrOptions? 
 
         foreach (var image in pdfPage.GetImages())
         {
+            cancellationToken.ThrowIfCancellationRequested();
             using var imageStream = OcrImageBytes(image);
             if (imageStream is null)
             {

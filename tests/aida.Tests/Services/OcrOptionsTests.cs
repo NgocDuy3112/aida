@@ -13,6 +13,8 @@ public class OcrOptionsTests
         Assert.True(options.Enabled);
         Assert.Equal("vie+eng", options.Language);
         Assert.Equal(20, options.MinLettersPerPage);
+        Assert.Equal(50, options.MaxPages);
+        Assert.Equal(120, options.OcrTimeoutSeconds);
         Assert.Null(options.TessDataPath);
     }
 
@@ -26,6 +28,8 @@ public class OcrOptionsTests
         Assert.True(options.Enabled);
         Assert.Equal("vie+eng", options.Language);
         Assert.Equal(20, options.MinLettersPerPage);
+        Assert.Equal(50, options.MaxPages);
+        Assert.Equal(120, options.OcrTimeoutSeconds);
         Assert.Null(options.TessDataPath);
     }
 
@@ -38,6 +42,8 @@ public class OcrOptionsTests
                 ["Ocr:Enabled"] = "false",
                 ["Ocr:Language"] = "eng",
                 ["Ocr:MinLettersPerPage"] = "50",
+                ["Ocr:MaxPages"] = "10",
+                ["Ocr:OcrTimeoutSeconds"] = "30",
                 ["Ocr:TessDataPath"] = "/opt/tessdata",
             })
             .Build();
@@ -47,6 +53,8 @@ public class OcrOptionsTests
         Assert.False(options.Enabled);
         Assert.Equal("eng", options.Language);
         Assert.Equal(50, options.MinLettersPerPage);
+        Assert.Equal(10, options.MaxPages);
+        Assert.Equal(30, options.OcrTimeoutSeconds);
         Assert.Equal("/opt/tessdata", options.TessDataPath);
     }
 

@@ -20,6 +20,8 @@ internal sealed class TesseractOcrEngine(OcrOptions options) : IPdfOcrEngine, ID
 
     public Task<string> RecognizeAsync(Stream image, string language, CancellationToken cancellationToken)
     {
+        // Tesseract cannot be interrupted inside Process(), so cancellation is honoured before the
+        // synchronous work starts; PdfPigReader re-checks the token between pages and enforces the timeout.
         cancellationToken.ThrowIfCancellationRequested();
 
         using var buffer = new MemoryStream();

@@ -82,6 +82,45 @@ public class PdfPigReaderTests
     }
 
     [Fact]
+    public async Task Too_many_pages_throws_before_any_ocr_runs()
+    {
+        using var pdf = BuildImageOnlyPdf(pages: 2);
+        var engine = new RecordingOcrEngine("text");
+        var reader = new PdfPigReader(engine, new OcrOptions { MaxPages = 1 });
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => reader.ReadAsync(pdf, "big.pdf", PdfMediaType));
+
+        Assert.Contains("MaxPages", exception.Message);
+        Assert.Equal(0, engine.Calls);
+    }
+
+    [Fact]
+    public async Task Ocr_running_past_the_timeout_throws_a_described_error()
+    {
+        using var pdf = BuildImageOnlyPdf();
+        var reader = new PdfPigReader(new SlowOcrEngine(), new OcrOptions { OcrTimeoutSeconds = 1 });
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => reader.ReadAsync(pdf, "slow.pdf", PdfMediaType));
+
+        Assert.Contains("timed out", exception.Message);
+    }
+
+    [Fact]
+    public async Task Cancellation_between_pages_stops_reading()
+    {
+        using var pdf = BuildImageOnlyPdf(pages: 2);
+        using var cancellation = new CancellationTokenSource();
+        var reader = new PdfPigReader(new CancellingOcrEngine(cancellation));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => reader.ReadAsync(pdf, "two-pages.pdf", PdfMediaType, cancellation.Token));
+
+        Assert.True(cancellation.IsCancellationRequested);
+    }
+
+    [Fact]
     public async Task Image_only_fixture_has_no_text_layer()
     {
         using var pdf = BuildImageOnlyPdf();
@@ -93,16 +132,19 @@ public class PdfPigReaderTests
             $"fixture still has {letters} letters; it is not a scanned document");
     }
 
-    private static MemoryStream BuildImageOnlyPdf()
+    private static MemoryStream BuildImageOnlyPdf(int pages = 1)
     {
         var bytes = Document.Create(container =>
         {
-            container.Page(page =>
+            for (var page = 0; page < pages; page++)
             {
-                page.Size(PageSizes.A4);
-                page.Margin(1, Unit.Centimetre);
-                page.Content().Image(ScanPng).FitArea();
-            });
+                container.Page(sheet =>
+                {
+                    sheet.Size(PageSizes.A4);
+                    sheet.Margin(1, Unit.Centimetre);
+                    sheet.Content().Image(ScanPng).FitArea();
+                });
+            }
         }).GeneratePdf();
 
         return new MemoryStream(bytes);
@@ -230,5 +272,26 @@ public class PdfPigReaderTests
     {
         public Task<string> RecognizeAsync(Stream image, string language, CancellationToken cancellationToken)
             => throw new InvalidOperationException("ocr exploded");
+    }
+
+    /// <summary>Blocks until the token fires, modelling Tesseract on a heavy scan.</summary>
+    private sealed class SlowOcrEngine : IPdfOcrEngine
+    {
+        public async Task<string> RecognizeAsync(
+            Stream image, string language, CancellationToken cancellationToken)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return string.Empty;
+        }
+    }
+
+    /// <summary>Cancels the caller's token on the first page, so the next page sees a cancelled read.</summary>
+    private sealed class CancellingOcrEngine(CancellationTokenSource cancellation) : IPdfOcrEngine
+    {
+        public Task<string> RecognizeAsync(Stream image, string language, CancellationToken cancellationToken)
+        {
+            cancellation.Cancel();
+            return Task.FromResult("trang một");
+        }
     }
 }
