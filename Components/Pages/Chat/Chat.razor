@@ -17,7 +17,6 @@
 @inject DocumentService Documents
 @inject IWebHostEnvironment Env
 @inject ILogger<Chat> Logger
-@inject GoogleWorkspaceService GoogleWorkspace
 @inject UserManager<AppUser> UserManager
 @inject IChatRateLimiter RateLimiter
 @inject IUsageTracker UsageTracker
@@ -687,7 +686,7 @@
         List<AITool> tools =
         [
             ChatDocumentTools.CreateReadDocument(userId, Env, Ocr),
-            ChatDocumentTools.CreateSaveDocument(userId, Documents, GoogleWorkspace, UserManager),
+            ChatDocumentTools.CreateSaveDocument(userId, Documents),
             ResearchTools.Create(userId, crew.ResearcherModel, crew.ResearcherThinking),
             CrewWriter.Create(userId, crew.WriterModel, crew.WriterThinking),
             AskUserTool.Create(askUserBroker),

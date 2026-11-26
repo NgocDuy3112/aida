@@ -49,10 +49,6 @@ public static class IdentityExtensions
                 o.ClientId = googleId!;
                 o.ClientSecret = googleSecret!;
                 o.CallbackPath = "/signin-google";
-                o.AccessType = "offline";
-                o.SaveTokens = true;
-                o.Scope.Add("https://www.googleapis.com/auth/drive.file");
-                o.Scope.Add("https://www.googleapis.com/auth/spreadsheets");
                 o.ClaimActions.MapJsonKey("email_verified", "email_verified");
             });
         }

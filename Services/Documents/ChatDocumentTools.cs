@@ -1,6 +1,4 @@
-using aida.Data;
 using aida.Services.Ingestion;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.AI;
 
 namespace aida.Services.Documents;
@@ -21,32 +19,27 @@ internal static class ChatDocumentTools
             null);
     }
 
-    internal static AIFunction CreateSaveDocument(
-        string ownerId, DocumentService documents,
-        GoogleWorkspaceService? google = null, UserManager<AppUser>? users = null)
+    internal static AIFunction CreateSaveDocument(string ownerId, DocumentService documents)
     {
         Func<string, string, string, Task<string>> save =
             (filename, format, content) =>
-                SaveAsync(ownerId, documents, google, users, filename, format, content);
+                SaveAsync(ownerId, documents, filename, format, content);
         return AIFunctionFactory.Create(
             save,
             "save_document",
-            "Create or replace a document the user can download or open. 'format' must be exactly \"docx\" " +
-            "(Word), \"pdf\", \"gdoc\" (Google Doc) or \"gsheet\" (Google Sheet). 'content' is the COMPLETE " +
+            "Create or replace a document the user can download. 'format' must be exactly \"docx\" " +
+            "(Word) or \"pdf\". 'content' is the COMPLETE " +
             "document in Markdown (headings, bullets, **bold**, `code`, ```fences and pipe tables are " +
             "supported). 'filename' is the bare file name; its extension is corrected to match the format. " +
-            "To update an existing document, pass its exact file name to replace it. For gdoc/gsheet (use " +
-            "them whenever the user wants a Google Doc/Sheet or a shareable online document) the result " +
-            "contains a https://docs.google.com/... link — quote it verbatim in your reply; Google files are " +
-            "not stored locally, so they have no /documents/ link and read_document cannot read them back. " +
-            "For docx/pdf, mention the file in your reply with a Markdown download link: [filename](/documents/filename).",
+            "To update an existing document, pass its exact file name to replace it. " +
+            "Always mention the file in your reply with a Markdown download link: [filename](/documents/filename).",
             null);
     }
 
     internal static string? NormalizeFileName(string? filename, string? format)
     {
         var extension = format?.Trim().ToLowerInvariant();
-        if (extension is not ("docx" or "pdf" or "gdoc" or "gsheet")) return null;
+        if (extension is not ("docx" or "pdf")) return null;
 
         var safe = Path.GetFileName(filename ?? string.Empty);
         if (string.IsNullOrWhiteSpace(safe)) return null;
@@ -87,18 +80,13 @@ internal static class ChatDocumentTools
 
     internal static async Task<string> SaveAsync(
         string ownerId, DocumentService documents,
-        GoogleWorkspaceService? google, UserManager<AppUser>? users,
         string? filename, string? format, string? content)
     {
         var safe = NormalizeFileName(filename, format);
         if (safe is null)
-            return "Error: filename is required and format must be exactly \"docx\", \"pdf\", \"gdoc\" or \"gsheet\".";
+            return "Error: filename is required and format must be exactly \"docx\" or \"pdf\".";
         if (string.IsNullOrWhiteSpace(content))
             return "Error: content is empty — provide the full document in Markdown.";
-
-        var normalized = format!.Trim().ToLowerInvariant();
-        if (normalized is "gdoc" or "gsheet")
-            return await SaveToGoogleAsync(google, users, ownerId, safe, normalized, content);
 
         try
         {
@@ -116,35 +104,6 @@ internal static class ChatDocumentTools
         catch (Exception ex)
         {
             return $"Error: could not save '{safe}': {ex.Message}";
-        }
-    }
-
-    private static async Task<string> SaveToGoogleAsync(
-        GoogleWorkspaceService? google, UserManager<AppUser>? users,
-        string ownerId, string safe, string format, string content)
-    {
-        if (google is null || users is null)
-            return "Error: Google Workspace saving is not configured on this server.";
-
-        var title = Path.GetFileNameWithoutExtension(safe);
-        try
-        {
-            var user = await users.FindByIdAsync(ownerId);
-            var result = format == "gdoc"
-                ? await google.CreateDocAsync(user?.GoogleRefreshToken, title, content)
-                : await google.CreateSheetAsync(user?.GoogleRefreshToken, title, content);
-
-            if (result.Error is not null)
-                return $"Error: {result.Error}";
-
-            var kind = format == "gdoc" ? "Google Doc" : "Google Sheet";
-            return $"Saved '{title}' as a {kind} (private to the owner; not stored locally, so " +
-                   "read_document cannot read it back). " +
-                   $"In your reply, include the link exactly as: [{title}]({result.Url})";
-        }
-        catch (Exception ex)
-        {
-            return $"Error: could not save '{title}' to Google: {ex.Message}";
         }
     }
 }

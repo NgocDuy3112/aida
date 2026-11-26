@@ -1,6 +1,5 @@
 using System.Security.Claims;
 using aida.Data;
-using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 
 namespace aida.Extensions;
@@ -44,7 +43,6 @@ public static class AuthEndpointExtensions
                 {
                     await SyncExternalProfileAsync(userManager, info, returning);
                     await EnsureAdminAsync(userManager, roleManager, config, returning);
-                    await PersistGoogleRefreshTokenAsync(signInManager, userManager, returning);
                 }
                 return Results.Redirect(target);
             }
@@ -85,7 +83,6 @@ public static class AuthEndpointExtensions
 
             await SyncExternalProfileAsync(userManager, info, user);
             await EnsureAdminAsync(userManager, roleManager, config, user);
-            await PersistGoogleRefreshTokenAsync(signInManager, userManager, user);
 
             await signInManager.SignInAsync(user, isPersistent: true);
             return Results.Redirect(target);
@@ -95,21 +92,6 @@ public static class AuthEndpointExtensions
         {
             await signInManager.SignOutAsync();
             return Results.Redirect("/login");
-        }).RequireAuthorization();
-
-        app.MapPost("/account/google/disconnect", async (
-            HttpContext context, UserManager<AppUser> userManager) =>
-        {
-            var form = await context.Request.ReadFormAsync();
-            var returnUrl = form["returnUrl"].ToString();
-            var user = await userManager.GetUserAsync(context.User);
-            if (user is not null)
-            {
-                user.GoogleRefreshToken = null;
-                user.GoogleRefreshTokenObtainedUtc = null;
-                await userManager.UpdateAsync(user);
-            }
-            return Results.Redirect(SafeReturnUrl(returnUrl));
         }).RequireAuthorization();
 
         app.MapPost("/account/password-signin", async (
@@ -237,19 +219,6 @@ public static class AuthEndpointExtensions
 
         if (changed)
             await userManager.UpdateAsync(user);
-    }
-
-    internal static async Task PersistGoogleRefreshTokenAsync(
-        SignInManager<AppUser> signInManager, UserManager<AppUser> userManager, AppUser user)
-    {
-        var external = await signInManager.Context.AuthenticateAsync(IdentityConstants.ExternalScheme);
-        var refresh = external.Properties?.GetTokenValue("refresh_token");
-        if (string.IsNullOrWhiteSpace(refresh) || user.GoogleRefreshToken == refresh)
-            return;
-
-        user.GoogleRefreshToken = refresh;
-        user.GoogleRefreshTokenObtainedUtc = DateTime.UtcNow;
-        await userManager.UpdateAsync(user);
     }
 
     internal static bool IsAdminEmail(IConfiguration config, string? email)

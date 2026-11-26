@@ -86,8 +86,6 @@ builder.Services.AddSingleton<SemanticSearch>();
 builder.Services.AddScoped<DocumentIngestor>();
 builder.Services.AddSingleton(OcrOptions.FromConfiguration(builder.Configuration));
 builder.Services.AddScoped<DocumentService>();
-builder.Services.AddHttpClient(GoogleWorkspaceService.HttpClientName);
-builder.Services.AddScoped<GoogleWorkspaceService>();
 builder.Services.AddChatClient(chatClient).UseLogging();
 builder.Services.AddEmbeddingGenerator(embeddings);
 

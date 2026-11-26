@@ -3,7 +3,6 @@
 @using System.Security.Claims
 @using Microsoft.AspNetCore.Identity
 @using aida.Services.Agents
-@using aida.Extensions
 @inject AuthenticationStateProvider AuthState
 @inject UserManager<AppUser> UserManager
 @inject IConfiguration Config
@@ -48,12 +47,6 @@
                 <span class="account-badge">Google</span>
             }
         </div>
-    </section>
-
-    <section class="settings-card">
-        <h2>Kết nối Google</h2>
-        <p class="settings-note">Quyền truy cập của AIDA vào Drive, Docs và Sheets của bạn.</p>
-        <GoogleConnectorRows Connected="@GoogleConnected" GoogleConfigured="@googleConfigured" />
     </section>
 
     <section class="settings-card">
@@ -137,7 +130,6 @@
     private string? status;
     private bool hasPassword;
     private bool hasGoogleLogin;
-    private bool googleConfigured;
     private readonly List<string> modelOptions = [];
 
     private string AccountName
@@ -177,20 +169,8 @@
         }
     }
 
-    private bool GoogleConnected
-    {
-        get
-        {
-            if (user is null)
-                return false;
-            return !string.IsNullOrWhiteSpace(user.GoogleRefreshToken);
-        }
-    }
-
     protected override async Task OnInitializedAsync()
     {
-        googleConfigured = IdentityExtensions.IsGoogleConfigured(Config);
-
         var models = Config.GetSection("Models");
         foreach (var model in models.GetSection("ChatModels").GetChildren()
                      .Select(c => c.Value)
