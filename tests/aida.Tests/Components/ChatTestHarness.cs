@@ -81,7 +81,10 @@ internal sealed class ChatTestHarness : IDisposable
     /// <param name="models">
     /// Scripted model answers. When omitted, any model call fails, which is what the pure UI tests want.
     /// </param>
-    public static ChatTestHarness Render(ModelScripts? models = null)
+    /// <param name="ingestor">
+    /// Replaces the document ingestor, so a test can let an upload ingest for real without a vector database.
+    /// </param>
+    public static ChatTestHarness Render(ModelScripts? models = null, DocumentIngestor? ingestor = null)
     {
         models ??= new ModelScripts();
         var context = new BunitContext();
@@ -109,7 +112,7 @@ internal sealed class ChatTestHarness : IDisposable
         context.Services.AddSingleton(openAi);
         context.Services.AddSingleton(new DocumentService(
             environment,
-            new DocumentIngestor(
+            ingestor ?? new DocumentIngestor(
                 new NoScopeFactory(), new StubEmbeddingGenerator(), new OcrOptions(),
                 NullLogger<DocumentIngestor>.Instance),
             NullLogger<DocumentService>.Instance));

@@ -16,6 +16,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OpenAI;
 using Pgvector;
@@ -264,4 +265,52 @@ internal sealed class StubEmbeddingGenerator : IEmbeddingGenerator<string, Embed
     public object? GetService(Type serviceType, object? serviceKey = null) => null;
 
     public void Dispose() { }
+}
+
+/// <summary>Returns fixed vectors, so ingestion can run its real path without a vector database.</summary>
+internal sealed class FixedEmbeddingGenerator(int dimensions = 1536) : IEmbeddingGenerator<string, Embedding<float>>
+{
+    public Task<GeneratedEmbeddings<Embedding<float>>> GenerateAsync(
+        IEnumerable<string> values, EmbeddingGenerationOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        var embeddings = values.Select(_ => new Embedding<float>(new float[dimensions])).ToList();
+        return Task.FromResult(new GeneratedEmbeddings<Embedding<float>>(embeddings));
+    }
+
+    public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+    public void Dispose() { }
+}
+
+/// <summary>
+/// Ingests for real (read + chunk) but records the chunks instead of writing them to a vector index,
+/// so a test can assert what an upload produced without a Postgres instance.
+/// </summary>
+internal sealed class RecordingIngestor(
+    IServiceScopeFactory scopeFactory,
+    IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
+    OcrOptions ocrOptions,
+    ILogger<DocumentIngestor> logger)
+    : DocumentIngestor(scopeFactory, embeddingGenerator, ocrOptions, logger)
+{
+    public List<string> StoredChunks { get; } = [];
+
+    public List<string> ClearedDocuments { get; } = [];
+
+    protected override Task PersistChunksAsync(
+        string ownerId, string documentId, IReadOnlyList<string> pieces,
+        GeneratedEmbeddings<Embedding<float>> embeddings, CancellationToken ct)
+    {
+        StoredChunks.Clear();
+        StoredChunks.AddRange(pieces);
+        return Task.CompletedTask;
+    }
+
+    public override Task RemoveChunksAsync(
+        string ownerId, string documentId, CancellationToken ct = default)
+    {
+        ClearedDocuments.Add(documentId);
+        return Task.CompletedTask;
+    }
 }

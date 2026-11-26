@@ -1,9 +1,12 @@
 using System.Reflection;
+using System.Text;
 using aida.Components.Pages.Chat;
+using aida.Services.Ingestion;
 using Bunit;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace aida.Tests.Components;
 
@@ -13,6 +16,35 @@ namespace aida.Tests.Components;
 /// </summary>
 public class ChatUploadTests
 {
+    [Fact]
+    public async Task A_readable_upload_keeps_the_chip_and_clears_the_status()
+    {
+        var ingestor = new RecordingIngestor(
+            new NoScopeFactory(), new FixedEmbeddingGenerator(), new OcrOptions { Enabled = false },
+            NullLogger<DocumentIngestor>.Instance);
+        using var harness = ChatTestHarness.Render(ingestor: ingestor);
+        var root = Directory.CreateTempSubdirectory("aida-upload").FullName;
+        try
+        {
+            var environment = (FakeWebHostEnvironment)harness.Context.Services
+                .GetRequiredService<IWebHostEnvironment>();
+            environment.ContentRootPath = root;
+
+            await UploadAsync(harness, new FakeBrowserFile(
+                "notes.md", Encoding.UTF8.GetBytes("# Ghi chú\n\nNội dung cuộc họp.")));
+
+            Assert.Contains("notes.md", harness.Runner.AttachedFiles);
+            Assert.Null(harness.Runner.Status);
+            Assert.NotEmpty(ingestor.StoredChunks);
+            Assert.True(File.Exists(Path.Combine(
+                root, "App_Data", "documents", ChatTestHarness.UserId, "notes.md")));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task An_unreadable_upload_is_dropped_and_reported()
     {
