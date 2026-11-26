@@ -9,6 +9,7 @@ namespace aida.Services.Ingestion;
 public class DocumentIngestor(
     IServiceScopeFactory scopeFactory,
     IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
+    OcrOptions ocrOptions,
     ILogger<DocumentIngestor> logger)
 {
     private const int MaxChunkChars = 1200;
@@ -17,7 +18,7 @@ public class DocumentIngestor(
     public async Task<int> IngestAsync(
         FileInfo file, string documentId, string ownerId, CancellationToken ct = default)
     {
-        var reader = new DocumentReader(file.Directory!);
+        var reader = new DocumentReader(file.Directory!, ocrOptions: ocrOptions);
         var document = await reader.ReadAsync(file, documentId, cancellationToken: ct);
 
         var text = string.Join("\n\n", document.EnumerateContent()
@@ -33,6 +34,30 @@ public class DocumentIngestor(
 
         var embeddings = await embeddingGenerator.GenerateAsync(pieces, cancellationToken: ct);
 
+        await PersistChunksAsync(ownerId, documentId, pieces, embeddings, ct);
+
+        logger.LogInformation("Ingested '{DocumentId}' as {Count} chunks for owner {OwnerId}.",
+            documentId, pieces.Count, ownerId);
+        return pieces.Count;
+    }
+
+    /// <summary>Drops every chunk of one document, so the index cannot outlive the file it describes.</summary>
+    public virtual async Task RemoveChunksAsync(
+        string ownerId, string documentId, CancellationToken ct = default)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        await db.Chunks
+            .Where(c => c.OwnerId == ownerId && c.DocumentId == documentId)
+            .ExecuteDeleteAsync(ct);
+    }
+
+    /// <summary>Replaces the stored chunks of one document; overridden by tests that run without a database.</summary>
+    protected virtual async Task PersistChunksAsync(
+        string ownerId, string documentId, IReadOnlyList<string> pieces,
+        GeneratedEmbeddings<Embedding<float>> embeddings, CancellationToken ct)
+    {
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
@@ -54,10 +79,6 @@ public class DocumentIngestor(
 
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
-
-        logger.LogInformation("Ingested '{DocumentId}' as {Count} chunks for owner {OwnerId}.",
-            documentId, pieces.Count, ownerId);
-        return pieces.Count;
     }
 
     internal static List<string> Chunk(string text)

@@ -7,9 +7,5 @@ public class AppUser : IdentityUser
     public string? DisplayName { get; set; }
     public string? AvatarUrl { get; set; }
 
-    public string? GoogleRefreshToken { get; set; }
-
-    public DateTime? GoogleRefreshTokenObtainedUtc { get; set; }
-
     public string? AgentSettingsJson { get; set; }
 }

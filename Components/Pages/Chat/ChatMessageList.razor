@@ -4,7 +4,8 @@
     <chat-messages class="page-width message-list" in-progress="@(InProgressMessage is not null)">
         @foreach (var message in Messages)
         {
-            <ChatMessageItem @key="@message" Message="@message" Attachments="@Attachments" Editable="@Editable" OnEdit="@OnEditMessage" />
+            <ChatMessageItem @key="@message" Message="@message" Attachments="@Attachments" Editable="@Editable" OnEdit="@OnEditMessage"
+                             Trace="@TraceFor(message)" CanRegenerate="@ReferenceEquals(message, LastAssistantMessage)" OnRegenerate="@OnRegenerate" />
         }
 
         @if (InProgressMessage is not null)
@@ -68,6 +69,18 @@
 
     [Parameter]
     public IReadOnlyList<string>? ProcessSteps { get; set; }
+
+    [Parameter]
+    public IReadOnlyDictionary<ChatMessage, ProcessTrace>? Traces { get; set; }
+
+    [Parameter]
+    public ChatMessage? LastAssistantMessage { get; set; }
+
+    [Parameter]
+    public EventCallback OnRegenerate { get; set; }
+
+    private ProcessTrace? TraceFor(ChatMessage message) =>
+        Traces is not null && Traces.TryGetValue(message, out var trace) ? trace : null;
 
     private bool IsEmpty => !Messages.Any(m => (m.Role == ChatRole.User || m.Role == ChatRole.Assistant) && !string.IsNullOrEmpty(m.Text));
 

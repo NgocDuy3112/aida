@@ -1,6 +1,7 @@
 using System.ClientModel;
 using aida.Data;
 using aida.Services.Agents;
+using aida.Services.Ingestion;
 using aida.Services.Usage;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
@@ -37,6 +38,7 @@ public class ParallelResearchToolTests
                 new RecordingTracker(),
                 new PricingTable(),
                 new FakeWebHostEnvironment(),
+                new OcrOptions(),
                 NullLogger<ParallelResearchTool>.Instance)
         {
         }

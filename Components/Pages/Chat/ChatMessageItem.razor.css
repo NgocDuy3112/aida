@@ -10,6 +10,16 @@
     overflow-wrap: anywhere;
 }
 
+.ask-user-badge {
+    display: inline-block;
+    margin-bottom: var(--space-1);
+    padding: 0.1rem var(--space-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
 .assistant-message,
 .assistant-search {
     display: grid;
@@ -289,4 +299,71 @@
 
 .message-edit-cancel:hover {
     color: var(--text);
+}
+
+.assistant-turn {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.assistant-message-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    margin-left: calc(1.75rem + var(--space-2));
+}
+
+.process-trace-chip,
+.message-regenerate-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font: inherit;
+    font-size: .75rem;
+    font-weight: 500;
+    padding: 3px 10px;
+    color: var(--text-muted);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    cursor: pointer;
+    transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+
+.process-trace-chip:hover,
+.message-regenerate-btn:hover {
+    color: var(--text);
+    border-color: var(--border-strong);
+}
+
+.process-trace-icon,
+.message-regenerate-btn svg {
+    width: 12px;
+    height: 12px;
+    flex: none;
+    color: var(--accent);
+}
+
+.process-trace-steps {
+    flex-basis: 100%;
+    margin: 0;
+    padding: var(--space-2) var(--space-3);
+    list-style: none;
+    font-size: .75rem;
+    color: var(--text-muted);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 2px solid var(--accent);
+    border-radius: var(--radius-sm);
+}
+
+.process-trace-steps li + li {
+    margin-top: 2px;
+}
+
+@media (max-width: 600px) {
+    .user-message { max-width: 92%; }
+    .assistant-message-actions { margin-left: 0; }
 }

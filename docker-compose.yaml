@@ -63,3 +63,4 @@ volumes:
   aida-postgresql:
     external: true
   aida-redis:
+

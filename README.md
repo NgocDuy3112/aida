@@ -47,6 +47,15 @@ docker compose up -d        # app + postgres + redis (all healthchecked)
 - **Database migrations**: compose applies them on boot (`Database__AutoMigrate=true`).
   For a local DB run `dotnet ef database update` once (pending: `AddUsageEvents`).
 - **Rate limit**: `RateLimit:ChatPerMinute` (default 20, `0` disables).
+- **Daily budget** (`Budget:*`): `Budget:DailyUsd` caps what one user may spend per **UTC**
+  day (default `0` = off, no spend is read and nothing changes). `Budget:WarningPercent`
+  (default 80) warns from that share of the limit but still runs the turn; at 100 % the turn
+  is refused with a status line. Spend is the `CostUsd` sum of the day's usage events, i.e.
+  the same dollars `/admin` reports; a failed read logs a warning and lets the turn through.
+- **Document OCR** (`Ocr:*`): `Ocr:MaxPages` (default 50) and `Ocr:OcrTimeoutSeconds`
+  (default 120) bound a *scanned* PDF — a page limit only fires when a page actually
+  needs OCR, so a long text PDF is still read. `Ocr:Enabled` (default true),
+  `Ocr:Language` (default `vie+eng`) and `Ocr:MinLettersPerPage` (default 20) sit beside them.
 - **Model pricing**: fetched live from the OpenRouter catalog
   (`GET /api/v1/models`) at boot and every 6 h — no prices in config. Models
   absent from the catalog show as "unpriced" in `/admin`; a failed refresh
@@ -57,6 +66,18 @@ docker compose up -d        # app + postgres + redis (all healthchecked)
 - **Admin portal**: `/admin` requires the `Admin` role — members of
   `Admin:Emails` receive it automatically at Google login (dev user gets it via
   `/dev-login` in Development).
+
+### Tests — OCR integration test and image smoke check
+
+```sh
+dotnet test                       # the OCR IT self-skips unless AIDA_OCR_IT=1
+./scripts/ocr-it.sh               # OCR IT in a Linux container (podman + dotnet SDK image + tesseract vie/eng)
+./scripts/smoke-ocr.sh [--keep]   # build the app image, check tesseract/vie/aliases inside it, remove it
+```
+
+Both scripts need a container engine (`CONTAINER_ENGINE`, default `podman`); the Tesseract native
+names the NuGet interop expects are aliased from the distro sonames by `scripts/link-tesseract-libs.sh`,
+which is also the step CI (`.github/workflows/ci.yml`) runs before `dotnet test`.
 
 ### Backups — `scripts/backup.sh`
 

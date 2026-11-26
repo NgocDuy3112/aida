@@ -60,6 +60,8 @@ builder.Services.AddSingleton<IChatRateLimiter>(sp => new ChatRateLimiter(
     sp.GetRequiredService<ILogger<ChatRateLimiter>>()));
 
 builder.Services.AddSingleton<PricingTable>();
+builder.Services.AddSingleton(BudgetOptions.FromConfiguration(builder.Configuration));
+builder.Services.AddScoped<IDailyBudget, DailyBudgetService>();
 builder.Services.AddHttpClient(OpenRouterPricingService.HttpClientName);
 builder.Services.AddHostedService<OpenRouterPricingService>();
 builder.Services.AddScoped<IUsageTracker, UsageTracker>();
@@ -84,9 +86,8 @@ builder.Services.AddScoped<ParallelResearchTool>();
 builder.Services.AddScoped<CrewWriterTool>();
 builder.Services.AddSingleton<SemanticSearch>();
 builder.Services.AddScoped<DocumentIngestor>();
+builder.Services.AddSingleton(OcrOptions.FromConfiguration(builder.Configuration));
 builder.Services.AddScoped<DocumentService>();
-builder.Services.AddHttpClient(GoogleWorkspaceService.HttpClientName);
-builder.Services.AddScoped<GoogleWorkspaceService>();
 builder.Services.AddChatClient(chatClient).UseLogging();
 builder.Services.AddEmbeddingGenerator(embeddings);
 

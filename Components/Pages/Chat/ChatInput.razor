@@ -6,7 +6,7 @@
 <EditForm Model="@this" OnValidSubmit="@SendMessageAsync">
     <label class="input-box page-width">
         <textarea @ref="@textArea" @bind="@messageText"
-                  rows="1"></textarea>
+                  rows="1" aria-label="Nhập tin nhắn"></textarea>
 
         @if (AttachedFileCount > 0)
         {

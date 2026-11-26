@@ -2,10 +2,13 @@ using Microsoft.Extensions.DataIngestion;
 
 namespace aida.Services.Ingestion;
 
-internal sealed class DocumentReader(DirectoryInfo rootDirectory) : IngestionDocumentReader
+internal sealed class DocumentReader(
+    DirectoryInfo rootDirectory,
+    IPdfOcrEngine? ocrEngine = null,
+    OcrOptions? ocrOptions = null) : IngestionDocumentReader
 {
     private readonly MarkdownReader _markdownReader = new();
-    private readonly PdfPigReader _pdfReader = new();
+    private readonly PdfPigReader _pdfReader = new(ocrEngine, ocrOptions);
 
     private readonly DocxIngestionReader _docxReader = new();
     private readonly XlsxIngestionReader _xlsxReader = new();

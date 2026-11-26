@@ -10,11 +10,18 @@
 
     <div class="topbar-title">
         <h1>@DisplayTitle</h1>
+        @if (Model is not null)
+        {
+            <span class="topbar-model" title="@Model">@ModelLabel.Short(Model)</span>
+        }
     </div>
 </div>
 
 @code {
     [Parameter] public string? Title { get; set; }
+
+    [Parameter]
+    public string? Model { get; set; }
 
     [Parameter] public bool SidebarOpen { get; set; }
 
